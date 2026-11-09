@@ -1,0 +1,172 @@
+name: Android
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Check whether this version needs a release
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_version=$(awk '$1 == "version:" { print $2; exit }' pubspec.yaml)
+          if [[ ! "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?\+[1-9][0-9]*$ ]]; then
+            echo "::error::Expected a version such as 0.1.0+1 in pubspec.yaml"
+            exit 1
+          fi
+          version=${release_version%+*}
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq '.[] | [.tag_name, .draft] | @tsv')
+          if grep -Fxq "v$version"$'\ttrue' <<< "$existing"; then
+            echo "::error::Review the existing draft for v$version in GitHub Releases before retrying."
+            exit 1
+          elif grep -Fxq "v$version"$'\tfalse' <<< "$existing"; then
+            echo "Release v$version already exists."
+          else
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter 3.47.9
+        run: |
+          sdk="$RUNNER_TEMP/flutter"
+          git clone --depth 1 --branch 3.47.9 https://github.com/flutter/flutter.git "$sdk"
+          test "$(git -C "$sdk" rev-parse HEAD)" = c197ca5199e9ee5661e865596c9c07294dfab51c
+          echo "$sdk/bin" >> "$GITHUB_PATH"
+
+      - name: Analyze and test
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter analyze --no-pub
+          flutter test --no-pub
+
+      - name: Build debug APK
+        if: steps.release.outputs.version == ''
+        run: flutter build apk --debug --no-pub
+
+      - name: Build release APK
+        if: steps.release.outputs.version != ''
+        env:
+          GREENHOUSE_FIREBASE_API_KEY: ${{ vars.GREENHOUSE_FIREBASE_API_KEY }}
+          GREENHOUSE_FIREBASE_APP_ID: ${{ vars.GREENHOUSE_FIREBASE_APP_ID }}
+          GREENHOUSE_FIREBASE_SENDER_ID: ${{ vars.GREENHOUSE_FIREBASE_SENDER_ID }}
+          GREENHOUSE_FIREBASE_PROJECT_ID: ${{ vars.GREENHOUSE_FIREBASE_PROJECT_ID }}
+        run: |
+          firebase_args=()
+          for name in GREENHOUSE_FIREBASE_{API_KEY,APP_ID,SENDER_ID,PROJECT_ID}; do
+            if [[ -n "${!name}" ]]; then
+              firebase_args+=("--dart-define=$name=${!name}")
+            fi
+          done
+          if [[ ${#firebase_args[@]} != 0 && ${#firebase_args[@]} != 4 ]]; then
+            echo "::error::Set all four Firebase Actions variables to enable push, or leave them all unset."
+            exit 1
+          fi
+          flutter build apk --release --no-pub "${firebase_args[@]}"
+
+      - name: Sign and verify release APK
+        if: steps.release.outputs.version != ''
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing Actions secret $name"
+              exit 1
+            fi
+          done
+          umask 077
+          keystore=$(mktemp "$RUNNER_TEMP/greenhouse-release.XXXXXX")
+          trap 'rm -- "$keystore"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          unset KEYSTORE_BASE64
+
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -x "$apksigner"
+          mkdir release
+          apk="greenhouse-v$VERSION.apk"
+          "$apksigner" sign \
+            --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --out "release/$apk" build/app/outputs/flutter-apk/app-release.apk
+          "$apksigner" verify --verbose --print-certs "release/$apk"
+          cd release
+          sha256sum "$apk" > "$apk.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.release.outputs.version != ''
+        with:
+          name: signed-android-release
+          path: release/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.version != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-android-release
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          apk="greenhouse-$tag.apk"
+          sha256sum --check "$apk.sha256"
+
+          # A pre-existing tag must resolve to the commit that built the APK.
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" \
+            --jq ".[] | select(.ref == \"refs/tags/$tag\") | .ref")
+          if [[ -n "$existing" ]]; then
+            commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$tag" --jq .sha)
+            test "$commit" = "$GITHUB_SHA" || {
+              echo "::error::Tag $tag points to a different commit."
+              exit 1
+            }
+          fi
+
+          options=()
+          if [[ "$VERSION" == *-* ]]; then
+            options+=(--prerelease)
+          fi
+          gh release create "$tag" "$apk" "$apk.sha256" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "GreenHouse $tag (Android)" --generate-notes "${options[@]}"

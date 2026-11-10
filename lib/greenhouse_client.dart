@@ -337,6 +337,17 @@ class GreenhouseClient {
     return owner;
   }
 
+  /// Checks that the current in-memory session remains valid on the server.
+  Future<void> validateSession() async {
+    final response = await request('/auth/session');
+    if (_sessionOwner(response) == null) {
+      throw const GreenhouseException('Invalid session response.');
+    }
+  }
+
+  /// Authenticates locally without reading or recovering a session token.
+  Future<bool> authenticateLocally() => _promptBiometrics('Unlock GreenHouse');
+
   /// Whether this device has biometric hardware with an enrolment.
   Future<bool> canUseBiometrics() async {
     try {

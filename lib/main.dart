@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'accounts.dart';
+import 'app_lock.dart';
 import 'finance_widgets.dart';
 import 'greenhouse_client.dart';
 import 'greenhouse_theme.dart';
@@ -28,7 +29,16 @@ class GreenHouseApp extends StatefulWidget {
   State<GreenHouseApp> createState() => _GreenHouseAppState();
 }
 
-class _GreenHouseAppState extends State<GreenHouseApp> {
+class _GreenHouseAppState extends State<GreenHouseApp>
+    with WidgetsBindingObserver {
+  final appLock = AppLock();
+  bool locked = false;
+  bool setupPin = false;
+  bool offerBiometrics = false;
+  bool checkingBiometrics = false;
+  bool wasBackgrounded = false;
+  bool foreground = true;
+  bool privacyCover = false;
   final navigation = GlobalKey<NavigatorState>();
   final messages = GlobalKey<ScaffoldMessengerState>();
   final notificationRevision = ValueNotifier(0);
@@ -41,6 +51,7 @@ class _GreenHouseAppState extends State<GreenHouseApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     client =
         widget.client ??
         GreenhouseClient(
@@ -64,6 +75,7 @@ class _GreenHouseAppState extends State<GreenHouseApp> {
 
   Future<void> initialize() async {
     await client.initialize();
+    await appLock.initialize();
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
@@ -78,6 +90,7 @@ class _GreenHouseAppState extends State<GreenHouseApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     notificationRevision.dispose();
     if (widget.client == null) client.dispose();
     super.dispose();
@@ -91,8 +104,86 @@ class _GreenHouseAppState extends State<GreenHouseApp> {
     navigation.currentState?.popUntil((route) => route.isFirst);
     setState(() {
       owner = null;
+      locked = false;
+      setupPin = false;
+      offerBiometrics = false;
+      checkingBiometrics = false;
       entryRevision++;
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final cover = state != AppLifecycleState.resumed && appLock.enabled;
+    if (cover != privacyCover) setState(() => privacyCover = cover);
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      foreground = false;
+    }
+    if (state == AppLifecycleState.resumed) foreground = true;
+    if ((state == AppLifecycleState.hidden ||
+            state == AppLifecycleState.paused) &&
+        owner != null &&
+        appLock.enabled) {
+      wasBackgrounded = true;
+      if (!locked) setState(() => locked = true);
+    } else if (state == AppLifecycleState.resumed && wasBackgrounded) {
+      wasBackgrounded = false;
+      if (owner != null && appLock.enabled && !locked) {
+        setState(() => locked = true);
+      }
+    }
+  }
+
+  @override
+  Future<bool> didPopRoute() async => owner != null && locked;
+
+  Future<void> signedIn(Json value) async {
+    setState(() {
+      owner = value;
+      setupPin = appLock.enabled && !appLock.hasPin;
+      offerBiometrics = false;
+      checkingBiometrics = !client.hasBiometricSession;
+      locked = setupPin || (appLock.enabled && !foreground);
+    });
+    if (!checkingBiometrics) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final shown = prefs.getBool('greenhouse.biometric_offer_shown') == true;
+      final supported = !shown && await client.canUseBiometrics();
+      if (!mounted || owner != value) return;
+      setState(() {
+        checkingBiometrics = false;
+        offerBiometrics = supported;
+      });
+    } catch (_) {
+      if (mounted && owner == value) setState(() => checkingBiometrics = false);
+    }
+  }
+
+  void finishBiometricOffer() {
+    setState(() => offerBiometrics = false);
+    unawaited(
+      SharedPreferences.getInstance().then(
+        (prefs) => prefs.setBool('greenhouse.biometric_offer_shown', true),
+      ),
+    );
+  }
+
+  Future<void> setLockEnabled(bool enabled) async {
+    if (enabled && !appLock.hasPin) {
+      setState(() {
+        setupPin = true;
+        locked = true;
+      });
+      return;
+    }
+    await appLock.setEnabled(enabled);
+    if (mounted) {
+      setState(() {
+        if (enabled && !foreground && owner != null) locked = true;
+      });
+    }
   }
 
   void changeTheme(ThemeMode value) {
@@ -113,21 +204,96 @@ class _GreenHouseAppState extends State<GreenHouseApp> {
     themeMode: mode,
     theme: greenhouseTheme(Brightness.light),
     darkTheme: greenhouseTheme(Brightness.dark),
+    builder: (context, child) => Stack(
+      children: [
+        ExcludeSemantics(
+          excluding: privacyCover,
+          child: ExcludeFocus(
+            excluding: privacyCover,
+            child: IgnorePointer(
+              ignoring: privacyCover,
+              child: Stack(
+                children: [
+                  if (child != null)
+                    ExcludeSemantics(
+                      excluding:
+                          locked || offerBiometrics || checkingBiometrics,
+                      child: ExcludeFocus(
+                        excluding:
+                            locked || offerBiometrics || checkingBiometrics,
+                        child: IgnorePointer(
+                          ignoring:
+                              locked || offerBiometrics || checkingBiometrics,
+                          child: child,
+                        ),
+                      ),
+                    ),
+                  if (owner != null && locked)
+                    Overlay(
+                      key: ValueKey(setupPin),
+                      initialEntries: [
+                        OverlayEntry(
+                          builder: (_) => LockScreen(
+                            lock: appLock,
+                            client: client,
+                            setup: setupPin,
+                            onUnlocked: () {
+                              if (mounted) {
+                                setState(() {
+                                  locked = false;
+                                  setupPin = false;
+                                });
+                              }
+                            },
+                            onSignOut: () async {
+                              await client.signOut();
+                              try {
+                                await appLock.clearPin();
+                              } catch (_) {}
+                              if (mounted) endSession();
+                            },
+                          ),
+                        ),
+                      ],
+                    )
+                  else if (owner != null && checkingBiometrics)
+                    const Scaffold(
+                      body: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (owner != null && offerBiometrics)
+                    _BiometricOffer(
+                      client: client,
+                      onDone: finishBiometricOffer,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (privacyCover)
+          const Positioned.fill(child: ColoredBox(color: Color(0xff101a18))),
+      ],
+    ),
     home: !ready
         ? const Scaffold(body: Center(child: CircularProgressIndicator()))
         : owner == null
         ? EntryScreen(
             key: ValueKey(entryRevision),
             client: client,
-            onSignedIn: (value) => setState(() => owner = value),
+            onSignedIn: signedIn,
           )
         : _ControlCenter(
             client: client,
             owner: owner!,
             mode: mode,
             onTheme: changeTheme,
+            appLock: appLock,
+            onLockEnabled: setLockEnabled,
             notificationRevision: notificationRevision,
-            onSessionEnded: (revoked) {
+            onSessionEnded: (revoked) async {
+              try {
+                await appLock.clearPin();
+              } catch (_) {}
               if (!mounted) return;
               endSession();
               if (!revoked) {
@@ -146,6 +312,8 @@ class _ControlCenter extends StatefulWidget {
     required this.owner,
     required this.mode,
     required this.onTheme,
+    required this.appLock,
+    required this.onLockEnabled,
     required this.notificationRevision,
     required this.onSessionEnded,
   });
@@ -153,6 +321,8 @@ class _ControlCenter extends StatefulWidget {
   final Json owner;
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onTheme;
+  final AppLock appLock;
+  final Future<void> Function(bool) onLockEnabled;
   final ValueListenable<int> notificationRevision;
   final ValueChanged<bool> onSessionEnded;
 
@@ -198,6 +368,8 @@ class _ControlCenterState extends State<_ControlCenter> {
                   owner: widget.owner,
                   mode: widget.mode,
                   onTheme: widget.onTheme,
+                  appLock: widget.appLock,
+                  onLockEnabled: widget.onLockEnabled,
                   onSessionEnded: widget.onSessionEnded,
                 ),
               ),
@@ -245,12 +417,16 @@ class _SettingsRoute extends StatefulWidget {
     required this.owner,
     required this.mode,
     required this.onTheme,
+    required this.appLock,
+    required this.onLockEnabled,
     required this.onSessionEnded,
   });
   final GreenhouseClient client;
   final Json owner;
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onTheme;
+  final AppLock appLock;
+  final Future<void> Function(bool) onLockEnabled;
   final ValueChanged<bool> onSessionEnded;
 
   @override
@@ -264,6 +440,8 @@ class _SettingsRouteState extends State<_SettingsRoute> {
   Widget build(BuildContext context) => CompanionSettings(
     client: widget.client,
     owner: widget.owner,
+    appLock: widget.appLock,
+    onLockEnabled: widget.onLockEnabled,
     mode: mode,
     onSessionEnded: widget.onSessionEnded,
     onTheme: (value) {
@@ -346,6 +524,74 @@ class _NotificationsState extends State<_Notifications> {
             ],
           ];
         },
+      ),
+    ),
+  );
+}
+
+class _BiometricOffer extends StatefulWidget {
+  const _BiometricOffer({required this.client, required this.onDone});
+  final GreenhouseClient client;
+  final VoidCallback onDone;
+  @override
+  State<_BiometricOffer> createState() => _BiometricOfferState();
+}
+
+class _BiometricOfferState extends State<_BiometricOffer> {
+  bool busy = false;
+  String? error;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Enable biometrics?',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Use your device biometrics to sign in and unlock GreenHouse more quickly.',
+                ),
+                if (error != null) Text(error!),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          setState(() {
+                            busy = true;
+                            error = null;
+                          });
+                          final saved = await widget.client
+                              .rememberWithBiometrics();
+                          if (!mounted) return;
+                          if (saved) {
+                            widget.onDone();
+                          } else {
+                            setState(() {
+                              busy = false;
+                              error = 'Biometrics could not be enabled. You can try again in Settings.';
+                            });
+                          }
+                        },
+                  child: const Text('Enable biometrics'),
+                ),
+                TextButton(
+                  onPressed: busy ? null : widget.onDone,
+                  child: const Text('Not now'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     ),
   );

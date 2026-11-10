@@ -28,6 +28,25 @@ class _EntryScreenState extends State<EntryScreen> {
   String? error;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.client.hasBiometricSession) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => unlock());
+    }
+  }
+
+  Future<void> unlock() => run(() async {
+    final owner = await widget.client.unlock();
+    if (owner != null && mounted) {
+      widget.onSignedIn(owner);
+    } else if (mounted && !widget.client.hasBiometricSession) {
+      setState(
+        () => error = 'Your saved session expired. Sign in with your password.',
+      );
+    }
+  });
+
+  @override
   void dispose() {
     address.dispose();
     email.dispose();
@@ -179,19 +198,7 @@ class _EntryScreenState extends State<EntryScreen> {
                   const SizedBox(height: 10),
                   if (widget.client.hasBiometricSession) ...[
                     FilledButton.icon(
-                      onPressed: busy
-                          ? null
-                          : () => run(() async {
-                              final owner = await widget.client.unlock();
-                              if (owner != null && mounted) {
-                                widget.onSignedIn(owner);
-                              } else if (mounted &&
-                                  !widget.client.hasBiometricSession) {
-                                setState(
-                                  () => error = 'Your saved session expired. Sign in with your password.',
-                                );
-                              }
-                            }),
+                      onPressed: busy ? null : unlock,
                       icon: const Icon(Icons.fingerprint),
                       label: const Text('Unlock with biometrics'),
                     ),

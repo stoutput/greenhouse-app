@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:greenhouse/greenhouse_client.dart';
 import 'package:greenhouse/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +10,7 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({'appearance': 'dark'});
+    FlutterSecureStorage.setMockInitialValues({});
     tester.view.physicalSize = const Size(392, 820);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -37,11 +39,43 @@ void main() {
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Set an unlock PIN'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enable biometrics?'), findsOneWidget);
+    await tester.tap(find.text('Not now'));
+    await tester.pumpAndSettle();
+    expect(find.text('Your financial picture'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is ColoredBox && widget.color == const Color(0xff101a18),
+      ),
+      findsOneWidget,
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('GreenHouse is locked'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.tap(find.text('Unlock'));
+    await tester.pumpAndSettle();
     expect(find.text('Your financial picture'), findsOneWidget);
     expect(find.text(r'$12,345.67'), findsOneWidget);
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Unlink device'));
+    await tester.scrollUntilVisible(
+      find.text('Unlink device'),
+      250,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.tap(find.text('Unlink device'));
     await tester.pumpAndSettle();
     expect(find.text('Unlink this device?'), findsOneWidget);
@@ -88,7 +122,10 @@ class _FixtureClient extends GreenhouseClient {
   Future<Json> signIn(String email, String password) async => {'email': email};
 
   @override
-  Future<bool> canUseBiometrics() async => false;
+  Future<void> validateSession() async {}
+
+  @override
+  Future<bool> canUseBiometrics() async => true;
 
   @override
   Future<bool> disconnect() async {

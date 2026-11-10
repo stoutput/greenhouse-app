@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_lock.dart';
 import 'finance_widgets.dart';
 import 'greenhouse_client.dart';
 import 'greenhouse_theme.dart';
@@ -10,9 +11,13 @@ class CompanionSettings extends StatefulWidget {
     required this.owner,
     required this.mode,
     required this.onTheme,
+    required this.appLock,
+    required this.onLockEnabled,
     required this.onSessionEnded,
     super.key,
   });
+  final AppLock appLock;
+  final Future<void> Function(bool) onLockEnabled;
   final GreenhouseClient client;
   final Json owner;
   final ThemeMode mode;
@@ -105,60 +110,73 @@ class _CompanionSettingsState extends State<CompanionSettings> {
         const SectionTitle('This device'),
         Panel(
           padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              FutureBuilder<bool>(
-                future: biometricSupport,
-                builder: (context, snapshot) {
-                  final enabled = widget.client.hasBiometricSession;
-                  return SwitchListTile(
-                    title: const Text('Biometric unlock'),
-                    subtitle: Text(
-                      snapshot.data == true || enabled
-                          ? 'Unlock a saved session using your device.'
-                          : 'Enroll a biometric in device settings to use this.',
-                    ),
-                    value: enabled,
-                    onChanged: !busy && (enabled || snapshot.data == true)
-                        ? (value) => apply(() async {
-                            if (value) {
-                              final saved = await widget.client
-                                  .rememberWithBiometrics();
-                              if (!saved && context.mounted) {
-                                showMessage(
-                                  context,
-                                  'Biometric unlock was not enabled.',
-                                );
-                              }
-                            } else {
-                              await widget.client.forgetBiometrics();
-                            }
-                          })
-                        : null,
-                  );
-                },
-              ),
-              SwitchListTile(
-                title: const Text('Push notifications'),
-                subtitle: Text(
-                  widget.client.pushAvailable
-                      ? 'Receive GreenHouse alerts on this device.'
-                      : 'Push is unavailable on this build.',
+          child: Material(
+            color: Colors.transparent,
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('Lock GreenHouse when navigating away'),
+                  subtitle: const Text(
+                    'Require biometrics or your PIN when you return.',
+                  ),
+                  value: widget.appLock.enabled,
+                  onChanged: busy
+                      ? null
+                      : (value) => apply(() => widget.onLockEnabled(value)),
                 ),
-                value: widget.client.pushEnabled,
-                onChanged: busy || !widget.client.pushAvailable
-                    ? null
-                    : (value) => apply(() async {
-                        if (!await widget.client.setPushEnabled(value) &&
-                            context.mounted) {
-                          showMessage(
-                            context,
-                            'Could not update push notifications. Check permissions and server setup.',
-                          );
-                        }
-                      }),
-              ),
-            ],
+                FutureBuilder<bool>(
+                  future: biometricSupport,
+                  builder: (context, snapshot) {
+                    final enabled = widget.client.hasBiometricSession;
+                    return SwitchListTile(
+                      title: const Text('Biometric unlock'),
+                      subtitle: Text(
+                        snapshot.data == true || enabled
+                            ? 'Unlock a saved session using your device.'
+                            : 'Enroll a biometric in device settings to use this.',
+                      ),
+                      value: enabled,
+                      onChanged: !busy && (enabled || snapshot.data == true)
+                          ? (value) => apply(() async {
+                              if (value) {
+                                final saved = await widget.client
+                                    .rememberWithBiometrics();
+                                if (!saved && context.mounted) {
+                                  showMessage(
+                                    context,
+                                    'Biometric unlock was not enabled.',
+                                  );
+                                }
+                              } else {
+                                await widget.client.forgetBiometrics();
+                              }
+                            })
+                          : null,
+                    );
+                  },
+                ),
+                SwitchListTile(
+                  title: const Text('Push notifications'),
+                  subtitle: Text(
+                    widget.client.pushAvailable
+                        ? 'Receive GreenHouse alerts on this device.'
+                        : 'Push is unavailable on this build.',
+                  ),
+                  value: widget.client.pushEnabled,
+                  onChanged: busy || !widget.client.pushAvailable
+                      ? null
+                      : (value) => apply(() async {
+                          if (!await widget.client.setPushEnabled(value) &&
+                              context.mounted) {
+                            showMessage(
+                              context,
+                              'Could not update push notifications. Check permissions and server setup.',
+                            );
+                          }
+                        }),
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 18),

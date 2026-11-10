@@ -34,7 +34,7 @@ as Actions **variables**. Leave them all unset to build without push.
 
 1. Complete owner setup in GreenHouse web. Use a server build that exposes `/api/v1/mobile/info` and an HTTPS address with a certificate trusted by the phone.
 2. At the app’s setup screen, search the LAN or enter the HTTPS origin. LAN search uses the `_greenhouse._tcp` DNS-SD service with an `origin` TXT record.
-3. Sign in with your existing owner credentials. Set an unlock PIN and optionally enable biometrics. You can change these options in app Settings.
+3. Sign in with your existing owner credentials. Use your device screen lock, or set an unlock PIN if your device has none, and optionally enable biometrics for sign-in. You can change these options in app Settings.
 
 For a reverse-proxy installation, set the backend’s `GREENHOUSE_PUBLIC_ORIGIN` and `GREENHOUSE_MOBILE_TRUSTED_PROXIES` to the public HTTPS origin and the exact immediate proxy IPs. The proxy must overwrite `X-Forwarded-Proto` with `https` for secure requests, and the backend port must be reachable only through the intended proxy. See the GreenHouse deployment guide for DNS-SD publishing with Docker.
 
@@ -60,8 +60,7 @@ iOS push also requires an Apple signing and APNs configuration for the iOS targe
 
 The app sends your owner credentials and financial requests to the HTTPS instance you select.
 It stores the selected server address on the device. If you enable biometric unlock, the app
-stores the session token in biometric-protected storage. By default, returning to the app requires
-biometrics or the unlock PIN and a valid server session. The PIN protects only an active session;
+stores the session token in biometric-protected storage. By default, returning to the app requires your device screen lock or, if none is configured, the GreenHouse unlock PIN, and a valid server session. The PIN protects only an active session;
 a fresh app launch requires biometrics or your account credentials. The app hides its contents in
 the app switcher while this lock is enabled. On Android, this also blocks screenshots while the app is open. Optional push uses Firebase Cloud
 Messaging to deliver a generic notice. The app fetches the alert details directly from GreenHouse.

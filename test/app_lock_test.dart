@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,13 +42,13 @@ void main() {
     client.dispose();
   });
 
-  testWidgets('return attempts biometrics and falls back to PIN', (
+  testWidgets('configured device lock does not fall back after cancellation', (
     tester,
   ) async {
     FlutterSecureStorage.setMockInitialValues({});
     final lock = AppLock();
     await lock.setPin('123456');
-    final client = _Client();
+    final client = _Client()..deviceSupported = true;
     var revealed = false;
     await tester.pumpWidget(
       MaterialApp(
@@ -61,17 +63,142 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(client.localAttempts, 1);
+    expect(find.byType(TextField), findsNothing);
     expect(
-      find.text('Biometrics did not unlock. Enter your PIN.'),
+      find.text('Device authentication did not unlock. Try again.'),
       findsOneWidget,
     );
     expect(revealed, isFalse);
-    await tester.enterText(find.byType(TextField), '123456');
-    await tester.tap(find.text('Unlock'));
-    await tester.pumpAndSettle();
-    expect(revealed, isTrue);
     client.dispose();
   });
+
+  testWidgets('removed device lock prompts for a new PIN when none exists', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final lock = AppLock();
+    final client = _Client();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LockScreen(
+          lock: lock,
+          client: client,
+          setup: false,
+          onUnlocked: () {},
+          onSignOut: () async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Set an unlock PIN'), findsOneWidget);
+    client.dispose();
+  });
+
+  testWidgets('configured device lock skips initial PIN setup', (tester) async {
+    final lock = AppLock();
+    final client = _Client()..deviceSupported = true;
+    var revealed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LockScreen(
+          lock: lock,
+          client: client,
+          setup: true,
+          onUnlocked: () => revealed = true,
+          onSignOut: () async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(revealed, isTrue);
+    expect(find.byType(TextField), findsNothing);
+    client.dispose();
+  });
+
+  testWidgets('retry checks for a removed device lock and reuses the PIN', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final lock = AppLock();
+    await lock.setPin('123456');
+    final client = _Client()..deviceSupported = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LockScreen(
+          lock: lock,
+          client: client,
+          setup: false,
+          onUnlocked: () {},
+          onSignOut: () async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    client.deviceSupported = false;
+    await tester.tap(find.text('Use device screen lock'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('GreenHouse is locked'), findsOneWidget);
+    client.dispose();
+  });
+
+  testWidgets('setup after background requires device authentication', (
+    tester,
+  ) async {
+    final lock = AppLock();
+    final client = _Client()..deviceSupported = true;
+    var revealed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LockScreen(
+          lock: lock,
+          client: client,
+          setup: true,
+          initialUnlockRequired: true,
+          onUnlocked: () => revealed = true,
+          onSignOut: () async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(client.localAttempts, 1);
+    expect(revealed, isFalse);
+    client.dispose();
+  });
+
+  testWidgets(
+    'background during validation invalidates native authentication',
+    (tester) async {
+      final client = _Client()
+        ..deviceSupported = true
+        ..localSuccess = true;
+      final validation = Completer<void>();
+      client.pendingValidation = validation;
+      var revealed = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LockScreen(
+            lock: AppLock(),
+            client: client,
+            setup: false,
+            onUnlocked: () => revealed = true,
+            onSignOut: () async {},
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(client.localAttempts, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      client.localSuccess = false;
+      validation.complete();
+      await tester.pumpAndSettle();
+      expect(revealed, isFalse);
+      expect(client.localAttempts, 2);
+      client.dispose();
+    },
+  );
 
   testWidgets('a PIN cannot reveal a session that fails server validation', (
     tester,
@@ -109,6 +236,11 @@ class _Client extends GreenhouseClient {
   int unlocks = 0;
   int localAttempts = 0;
   bool validationFails = false;
+  bool deviceSupported = false;
+  bool localSuccess = false;
+  Completer<void>? pendingValidation;
+  @override
+  Future<bool> hasDeviceLock() async => deviceSupported;
   @override
   Uri? get origin => Uri.parse('https://garden.example');
   @override
@@ -122,11 +254,12 @@ class _Client extends GreenhouseClient {
   @override
   Future<bool> authenticateLocally() async {
     localAttempts++;
-    return false;
+    return localSuccess;
   }
 
   @override
   Future<void> validateSession() async {
     if (validationFails) throw Exception('expired');
+    await pendingValidation?.future;
   }
 }

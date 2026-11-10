@@ -346,7 +346,13 @@ class GreenhouseClient {
   }
 
   /// Authenticates locally without reading or recovering a session token.
-  Future<bool> authenticateLocally() => _promptBiometrics('Unlock GreenHouse');
+  Future<bool> hasDeviceLock() => _localAuth.isDeviceSupported();
+
+  Future<bool> authenticateLocally() => _localAuth.authenticate(
+    localizedReason: 'Unlock GreenHouse',
+    biometricOnly: false,
+    persistAcrossBackgrounding: false,
+  );
 
   /// Whether this device has biometric hardware with an enrolment.
   Future<bool> canUseBiometrics() async {

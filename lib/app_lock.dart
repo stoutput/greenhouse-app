@@ -100,12 +100,14 @@ class LockScreen extends StatefulWidget {
     required this.lock,
     required this.client,
     required this.setup,
+    this.initialUnlockRequired = false,
     required this.onUnlocked,
     required this.onSignOut,
   });
   final AppLock lock;
   final GreenhouseClient client;
   final bool setup;
+  final bool initialUnlockRequired;
   final VoidCallback onUnlocked;
   final Future<void> Function() onSignOut;
   @override
@@ -119,7 +121,12 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   bool busy = false;
   bool foreground = true;
   int generation = 0;
-  int biometricFailures = 0;
+  bool checkingMethod = true;
+  bool deviceLock = false;
+  bool settingPin = false;
+  bool prompting = false;
+  bool methodError = false;
+  bool backgrounded = false;
 
   @override
   void initState() {
@@ -128,9 +135,8 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
     foreground =
         WidgetsBinding.instance.lifecycleState == null ||
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
-    if (!widget.setup) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => biometric());
-    }
+    settingPin = widget.setup;
+    WidgetsBinding.instance.addPostFrameCallback((_) => checkMethod());
   }
 
   @override
@@ -146,11 +152,14 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       foreground = false;
-      generation++;
+      if (!prompting) {
+        backgrounded = true;
+        generation++;
+      }
     } else if (state == AppLifecycleState.resumed) {
       foreground = true;
-      if (!widget.setup) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => biometric());
+      if (!prompting && !busy) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => checkMethod());
       }
     }
   }
@@ -160,38 +169,72 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
     if (mounted && foreground && attempt == generation) widget.onUnlocked();
   }
 
-  Future<void> biometric() async {
-    if (busy ||
-        widget.setup ||
-        !widget.client.hasBiometricSession ||
-        biometricFailures >= 3 ||
-        !foreground) {
-      return;
-    }
+  Future<void> checkMethod() async {
+    if (!mounted || busy || !foreground) return;
     final attempt = generation;
     setState(() {
       busy = true;
+      checkingMethod = true;
+      methodError = false;
       error = null;
     });
     try {
-      final success = await widget.client.authenticateLocally();
-      if (!mounted || attempt != generation || !foreground) return;
-      if (success) {
+      final supported = await widget.client.hasDeviceLock();
+      if (!mounted || !foreground || attempt != generation) return;
+      deviceLock = supported;
+      if (supported &&
+          widget.setup &&
+          !widget.initialUnlockRequired &&
+          !backgrounded) {
+        if (!widget.lock.enabled) await widget.lock.setEnabled(true);
         await complete(attempt);
+      } else if (supported) {
+        setState(() {
+          checkingMethod = false;
+        });
+        await deviceAuthenticate(attempt);
       } else {
-        biometricFailures++;
-        if (mounted) {
-          setState(() => error = 'Biometrics did not unlock. Enter your PIN.');
-        }
+        setState(() {
+          checkingMethod = false;
+          settingPin = widget.setup || !widget.lock.hasPin;
+        });
       }
     } catch (_) {
       if (mounted && attempt == generation) {
-        setState(
-          () => error = 'Could not verify your session. Retry or sign out.',
-        );
+        setState(() {
+          checkingMethod = false;
+          methodError = true;
+          error = 'Could not check device security. Retry or sign out.';
+        });
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+        if (foreground && attempt != generation) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => checkMethod());
+        }
+      }
+    }
+  }
+
+  Future<void> deviceAuthenticate(int attempt) async {
+    final bool success;
+    prompting = true;
+    try {
+      success = await widget.client.authenticateLocally();
+    } finally {
+      prompting = false;
+    }
+    if (!mounted || attempt != generation || !foreground) return;
+    if (success) {
+      if (widget.setup && !widget.lock.enabled) {
+        await widget.lock.setEnabled(true);
+      }
+      await complete(attempt);
+    } else {
+      setState(
+        () => error = 'Device authentication did not unlock. Try again.',
+      );
     }
   }
 
@@ -202,7 +245,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       setState(() => error = 'Enter a PIN of 6 to 12 digits.');
       return;
     }
-    if (widget.setup && first == null) {
+    if (settingPin && first == null) {
       setState(() {
         first = value;
         pin.clear();
@@ -210,7 +253,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       });
       return;
     }
-    if (widget.setup && first != value) {
+    if (settingPin && first != value) {
       setState(() {
         first = null;
         pin.clear();
@@ -224,7 +267,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       error = null;
     });
     try {
-      if (widget.setup) {
+      if (settingPin) {
         await widget.lock.setPin(value);
         if (!widget.lock.enabled) await widget.lock.setEnabled(true);
         await complete(attempt);
@@ -249,6 +292,9 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       if (mounted) {
         pin.clear();
         setState(() => busy = false);
+        if (foreground && attempt != generation) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => checkMethod());
+        }
       }
     }
   }
@@ -264,27 +310,32 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
             padding: const EdgeInsets.all(24),
             children: [
               Text(
-                widget.setup
+                settingPin && !deviceLock
                     ? (first == null ? 'Set an unlock PIN' : 'Confirm your PIN')
                     : 'GreenHouse is locked',
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
               const SizedBox(height: 12),
               Text(
-                widget.setup
+                checkingMethod
+                    ? 'Checking device security.'
+                    : deviceLock
+                    ? 'Unlock with your device screen lock.'
+                    : settingPin
                     ? 'Use this PIN to unlock your current session when you return to the app.'
                     : 'Enter your PIN to return to your session.',
               ),
               const SizedBox(height: 20),
-              TextField(
-                controller: pin,
-                enabled: !busy,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                maxLength: 12,
-                onSubmitted: (_) => submit(),
-                decoration: const InputDecoration(labelText: 'Unlock PIN'),
-              ),
+              if (!checkingMethod && !deviceLock && !methodError)
+                TextField(
+                  controller: pin,
+                  enabled: !busy,
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  maxLength: 12,
+                  onSubmitted: (_) => submit(),
+                  decoration: const InputDecoration(labelText: 'Unlock PIN'),
+                ),
               if (error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -295,16 +346,20 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-              FilledButton(
-                onPressed: busy ? null : submit,
-                child: Text(widget.setup ? 'Continue' : 'Unlock'),
-              ),
-              if (!widget.setup &&
-                  widget.client.hasBiometricSession &&
-                  biometricFailures < 3)
-                TextButton(
-                  onPressed: busy ? null : biometric,
-                  child: const Text('Use biometrics'),
+              if (!checkingMethod && deviceLock && !methodError)
+                FilledButton(
+                  onPressed: busy ? null : checkMethod,
+                  child: const Text('Use device screen lock'),
+                )
+              else if (!checkingMethod && methodError)
+                FilledButton(
+                  onPressed: busy ? null : checkMethod,
+                  child: const Text('Retry'),
+                )
+              else if (!checkingMethod)
+                FilledButton(
+                  onPressed: busy ? null : submit,
+                  child: Text(settingPin ? 'Continue' : 'Unlock'),
                 ),
               TextButton(
                 onPressed: busy

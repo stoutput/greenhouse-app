@@ -34,6 +34,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
   final appLock = AppLock();
   bool locked = false;
   bool setupPin = false;
+  bool setupRequiresAuthentication = false;
   bool offerBiometrics = false;
   bool checkingBiometrics = false;
   bool wasBackgrounded = false;
@@ -126,6 +127,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
         owner != null &&
         appLock.enabled) {
       wasBackgrounded = true;
+      if (setupPin) setupRequiresAuthentication = true;
       if (!locked) setState(() => locked = true);
     } else if (state == AppLifecycleState.resumed && wasBackgrounded) {
       wasBackgrounded = false;
@@ -142,6 +144,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
     setState(() {
       owner = value;
       setupPin = appLock.enabled && !appLock.hasPin;
+      setupRequiresAuthentication = !foreground;
       offerBiometrics = false;
       checkingBiometrics = !client.hasBiometricSession;
       locked = setupPin || (appLock.enabled && !foreground);
@@ -174,6 +177,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
     if (enabled && !appLock.hasPin) {
       setState(() {
         setupPin = true;
+        setupRequiresAuthentication = !foreground;
         locked = true;
       });
       return;
@@ -237,6 +241,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
                             lock: appLock,
                             client: client,
                             setup: setupPin,
+                            initialUnlockRequired: setupRequiresAuthentication,
                             onUnlocked: () {
                               if (mounted) {
                                 setState(() {

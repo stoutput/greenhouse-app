@@ -128,6 +128,9 @@ class _FixtureClient extends GreenhouseClient {
   Future<bool> canUseBiometrics() async => true;
 
   @override
+  Future<bool> hasDeviceLock() async => false;
+
+  @override
   Future<bool> disconnect() async {
     didUnlink = true;
     selected = null;

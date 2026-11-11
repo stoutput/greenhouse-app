@@ -111,7 +111,9 @@ class _LoadScreenState<T> extends State<LoadScreen<T>> {
 
   Future<void> reload() async {
     final request = widget.load();
-    setState(() => future = request);
+    setState(() {
+      future = request;
+    });
     try {
       await request;
     } catch (_) {

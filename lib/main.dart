@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'accounts.dart';
+import 'ambient_lighting.dart';
 import 'app_lock.dart';
 import 'finance_widgets.dart';
 import 'greenhouse_client.dart';
@@ -45,7 +46,8 @@ class _GreenHouseAppState extends State<GreenHouseApp>
   final notificationRevision = ValueNotifier(0);
   late final GreenhouseClient client;
   ThemeMode mode = ThemeMode.system;
-  Json? owner;
+  bool lightingEnabled = true;
+  HouseholdIdentity? owner;
   bool ready = false;
   int entryRevision = 0;
 
@@ -77,16 +79,8 @@ class _GreenHouseAppState extends State<GreenHouseApp>
   Future<void> initialize() async {
     await client.initialize();
     await appLock.initialize();
-    final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
-    setState(() {
-      mode =
-          ThemeMode.values
-              .where((item) => item.name == prefs.getString('appearance'))
-              .firstOrNull ??
-          ThemeMode.system;
-      ready = true;
-    });
+    setState(() => ready = true);
   }
 
   @override
@@ -103,8 +97,11 @@ class _GreenHouseAppState extends State<GreenHouseApp>
 
   void endSession() {
     navigation.currentState?.popUntil((route) => route.isFirst);
+    unawaited(appLock.useIdentity(null));
     setState(() {
       owner = null;
+      mode = ThemeMode.system;
+      lightingEnabled = true;
       locked = false;
       setupPin = false;
       offerBiometrics = false;
@@ -121,7 +118,12 @@ class _GreenHouseAppState extends State<GreenHouseApp>
         state == AppLifecycleState.paused) {
       foreground = false;
     }
-    if (state == AppLifecycleState.resumed) foreground = true;
+    if (state == AppLifecycleState.resumed) {
+      foreground = true;
+      if (owner != null && (!appLock.enabled || !locked)) {
+        unawaited(refreshIdentity());
+      }
+    }
     if ((state == AppLifecycleState.hidden ||
             state == AppLifecycleState.paused) &&
         owner != null &&
@@ -140,9 +142,29 @@ class _GreenHouseAppState extends State<GreenHouseApp>
   @override
   Future<bool> didPopRoute() async => owner != null && locked;
 
-  Future<void> signedIn(Json value) async {
+  Future<void> signedIn(HouseholdIdentity value) async {
+    final scope = value.preferenceScope(client.origin);
+    final appearanceKey = value.preferenceKey('appearance', client.origin);
+    final biometricOfferKey = value.preferenceKey(
+      'biometric_offer_shown',
+      client.origin,
+    );
+    await appLock.useIdentity(scope);
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    final restoredMode =
+        ThemeMode.values
+            .where((item) => item.name == prefs.getString(appearanceKey))
+            .firstOrNull ??
+        ThemeMode.system;
     setState(() {
       owner = value;
+      mode = restoredMode;
+      lightingEnabled =
+          prefs.getBool(
+            value.preferenceKey('ambient_lighting', client.origin),
+          ) ??
+          true;
       setupPin = appLock.enabled && !appLock.hasPin;
       setupRequiresAuthentication = !foreground;
       offerBiometrics = false;
@@ -151,8 +173,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
     });
     if (!checkingBiometrics) return;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final shown = prefs.getBool('greenhouse.biometric_offer_shown') == true;
+      final shown = prefs.getBool(biometricOfferKey) == true;
       final supported = !shown && await client.canUseBiometrics();
       if (!mounted || owner != value) return;
       setState(() {
@@ -166,10 +187,10 @@ class _GreenHouseAppState extends State<GreenHouseApp>
 
   void finishBiometricOffer() {
     setState(() => offerBiometrics = false);
+    final key = owner?.preferenceKey('biometric_offer_shown', client.origin);
+    if (key == null) return;
     unawaited(
-      SharedPreferences.getInstance().then(
-        (prefs) => prefs.setBool('greenhouse.biometric_offer_shown', true),
-      ),
+      SharedPreferences.getInstance().then((prefs) => prefs.setBool(key, true)),
     );
   }
 
@@ -192,11 +213,67 @@ class _GreenHouseAppState extends State<GreenHouseApp>
 
   void changeTheme(ThemeMode value) {
     setState(() => mode = value);
-    unawaited(
-      SharedPreferences.getInstance().then(
-        (prefs) => prefs.setString('appearance', value.name),
-      ),
-    );
+    final key = owner?.preferenceKey('appearance', client.origin);
+    if (key != null) {
+      unawaited(
+        SharedPreferences.getInstance().then(
+          (prefs) => prefs.setString(key, value.name),
+        ),
+      );
+    }
+  }
+
+  void changeLighting(bool value) {
+    setState(() => lightingEnabled = value);
+    final key = owner?.preferenceKey('ambient_lighting', client.origin);
+    if (key != null) {
+      unawaited(
+        SharedPreferences.getInstance().then(
+          (prefs) => prefs.setBool(key, value),
+        ),
+      );
+    }
+  }
+
+  Future<void> refreshIdentity() async {
+    try {
+      await client.validateSession();
+      final identity = client.identity;
+      if (!mounted || identity == null) return;
+      final oldScope = owner?.preferenceScope(client.origin);
+      final newScope = identity.preferenceScope(client.origin);
+      ThemeMode nextMode = mode;
+      bool nextLighting = lightingEnabled;
+      if (oldScope != newScope) {
+        await appLock.useIdentity(newScope);
+        final prefs = await SharedPreferences.getInstance();
+        nextLighting =
+            prefs.getBool(
+              identity.preferenceKey('ambient_lighting', client.origin),
+            ) ??
+            true;
+        nextMode =
+            ThemeMode.values
+                .where(
+                  (item) =>
+                      item.name ==
+                      prefs.getString(
+                        identity.preferenceKey('appearance', client.origin),
+                      ),
+                )
+                .firstOrNull ??
+            ThemeMode.system;
+      }
+      if (mounted) {
+        setState(() {
+          owner = identity;
+          mode = nextMode;
+          lightingEnabled = nextLighting;
+        });
+      }
+    } catch (_) {
+      // A temporary network error does not end a valid local session.
+    }
   }
 
   @override
@@ -208,76 +285,89 @@ class _GreenHouseAppState extends State<GreenHouseApp>
     themeMode: mode,
     theme: greenhouseTheme(Brightness.light),
     darkTheme: greenhouseTheme(Brightness.dark),
-    builder: (context, child) => Stack(
-      children: [
-        ExcludeSemantics(
-          excluding: privacyCover,
-          child: ExcludeFocus(
+    builder: (context, child) => AmbientLightingScope(
+      enabled: lightingEnabled,
+      onChanged: changeLighting,
+      child: Stack(
+        children: [
+          ExcludeSemantics(
             excluding: privacyCover,
-            child: IgnorePointer(
-              ignoring: privacyCover,
-              child: Stack(
-                children: [
-                  if (child != null)
-                    ExcludeSemantics(
-                      excluding:
-                          locked || offerBiometrics || checkingBiometrics,
-                      child: ExcludeFocus(
+            child: ExcludeFocus(
+              excluding: privacyCover,
+              child: IgnorePointer(
+                ignoring: privacyCover,
+                child: Stack(
+                  children: [
+                    if (child != null)
+                      ExcludeSemantics(
                         excluding:
                             locked || offerBiometrics || checkingBiometrics,
-                        child: IgnorePointer(
-                          ignoring:
+                        child: ExcludeFocus(
+                          excluding:
                               locked || offerBiometrics || checkingBiometrics,
-                          child: child,
-                        ),
-                      ),
-                    ),
-                  if (owner != null && locked)
-                    Overlay(
-                      key: ValueKey(setupPin),
-                      initialEntries: [
-                        OverlayEntry(
-                          builder: (_) => LockScreen(
-                            lock: appLock,
-                            client: client,
-                            setup: setupPin,
-                            initialUnlockRequired: setupRequiresAuthentication,
-                            onUnlocked: () {
-                              if (mounted) {
-                                setState(() {
-                                  locked = false;
-                                  setupPin = false;
-                                });
-                              }
-                            },
-                            onSignOut: () async {
-                              await client.signOut();
-                              try {
-                                await appLock.clearPin();
-                              } catch (_) {}
-                              if (mounted) endSession();
-                            },
+                          child: IgnorePointer(
+                            ignoring:
+                                locked || offerBiometrics || checkingBiometrics,
+                            child: child,
                           ),
                         ),
-                      ],
-                    )
-                  else if (owner != null && checkingBiometrics)
-                    const Scaffold(
-                      body: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (owner != null && offerBiometrics)
-                    _BiometricOffer(
-                      client: client,
-                      onDone: finishBiometricOffer,
-                    ),
-                ],
+                      ),
+                    if (owner != null &&
+                        lightingEnabled &&
+                        !locked &&
+                        !offerBiometrics &&
+                        !checkingBiometrics &&
+                        !privacyCover)
+                      const Positioned.fill(child: AmbientLighting()),
+                    if (owner != null && locked)
+                      Overlay(
+                        key: ValueKey(setupPin),
+                        initialEntries: [
+                          OverlayEntry(
+                            builder: (_) => LockScreen(
+                              lock: appLock,
+                              client: client,
+                              setup: setupPin,
+                              initialUnlockRequired:
+                                  setupRequiresAuthentication,
+                              onUnlocked: () {
+                                if (mounted) {
+                                  setState(() {
+                                    owner = client.identity ?? owner;
+                                    locked = false;
+                                    setupPin = false;
+                                  });
+                                }
+                              },
+                              onSignOut: () async {
+                                await client.signOut();
+                                try {
+                                  await appLock.clearPin();
+                                } catch (_) {}
+                                if (mounted) endSession();
+                              },
+                            ),
+                          ),
+                        ],
+                      )
+                    else if (owner != null && checkingBiometrics)
+                      const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (owner != null && offerBiometrics)
+                      _BiometricOffer(
+                        client: client,
+                        onDone: finishBiometricOffer,
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        if (privacyCover)
-          const Positioned.fill(child: ColoredBox(color: Color(0xff101a18))),
-      ],
+          if (privacyCover)
+            const Positioned.fill(child: ColoredBox(color: Color(0xff101a18))),
+        ],
+      ),
     ),
     home: !ready
         ? const Scaffold(body: Center(child: CircularProgressIndicator()))
@@ -288,6 +378,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
             onSignedIn: signedIn,
           )
         : _ControlCenter(
+            key: ValueKey((owner!.preferenceScope(client.origin), owner!.role)),
             client: client,
             owner: owner!,
             mode: mode,
@@ -313,6 +404,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
 
 class _ControlCenter extends StatefulWidget {
   const _ControlCenter({
+    super.key,
     required this.client,
     required this.owner,
     required this.mode,
@@ -323,7 +415,7 @@ class _ControlCenter extends StatefulWidget {
     required this.onSessionEnded,
   });
   final GreenhouseClient client;
-  final Json owner;
+  final HouseholdIdentity owner;
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onTheme;
   final AppLock appLock;
@@ -427,7 +519,7 @@ class _SettingsRoute extends StatefulWidget {
     required this.onSessionEnded,
   });
   final GreenhouseClient client;
-  final Json owner;
+  final HouseholdIdentity owner;
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onTheme;
   final AppLock appLock;
@@ -515,7 +607,8 @@ class _NotificationsState extends State<_Notifications> {
                       const SizedBox(height: 5),
                       Text(label(item['explanation'])),
                     ],
-                    if (item['isPersistent'] != true)
+                    if (item['isPersistent'] != true &&
+                        widget.client.permissions.canAcknowledgeNotifications)
                       TextButton(
                         onPressed: acknowledging == null
                             ? () => acknowledge(item, reload)

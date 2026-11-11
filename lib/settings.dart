@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_lock.dart';
+import 'ambient_lighting.dart';
 import 'finance_widgets.dart';
 import 'greenhouse_client.dart';
 import 'greenhouse_theme.dart';
@@ -19,7 +20,7 @@ class CompanionSettings extends StatefulWidget {
   final AppLock appLock;
   final Future<void> Function(bool) onLockEnabled;
   final GreenhouseClient client;
-  final Json owner;
+  final HouseholdIdentity owner;
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onTheme;
   final ValueChanged<bool> onSessionEnded;
@@ -87,10 +88,18 @@ class _CompanionSettingsState extends State<CompanionSettings> {
                 widget.client.origin?.host ?? 'GreenHouse',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
-              Text(label(widget.owner['email'])),
+              Text(widget.owner.displayName ?? widget.owner.email),
+              const SizedBox(height: 4),
+              Eyebrow('Household role · ${widget.owner.role.name}'),
             ],
           ),
         ),
+        if (!widget.owner.permissions.canManageSharedFinances)
+          const Panel(
+            child: Text(
+              'Household finances are read-only in the mobile app for this role. Manage invitations and household access in GreenHouse on the web.',
+            ),
+          ),
         const SectionTitle('Appearance'),
         DropdownButtonFormField<ThemeMode>(
           initialValue: widget.mode,
@@ -107,6 +116,15 @@ class _CompanionSettingsState extends State<CompanionSettings> {
             if (value != null) widget.onTheme(value);
           },
         ),
+        if (AmbientLightingScope.maybeOf(context) case final lighting?)
+          SwitchListTile(
+            title: const Text('Ambient daylight and moonlight'),
+            subtitle: const Text(
+              'A subtle light ray effect that follows the time of day.',
+            ),
+            value: lighting.enabled,
+            onChanged: lighting.onChanged,
+          ),
         const SectionTitle('This device'),
         Panel(
           padding: EdgeInsets.zero,

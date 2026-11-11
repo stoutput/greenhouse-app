@@ -90,20 +90,23 @@ class _AccountTile extends StatelessWidget {
             .where((item) => item['balanceType'] == preferred)
             .firstOrNull ??
         balances.where((item) => item['balanceType'] == 'current').firstOrNull;
-    return ListTile(
-      leading: const Icon(Icons.account_balance_wallet_outlined),
-      title: Text(label(account['displayName'], 'Account')),
-      subtitle: Text(
-        [
-          label(row['connectionName'], words(account['kind'])),
-          if (account['mask'] != null) '••${account['mask']}',
-        ].join(' · '),
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        leading: const Icon(Icons.account_balance_wallet_outlined),
+        title: Text(label(account['displayName'], 'Account')),
+        subtitle: Text(
+          [
+            label(row['connectionName'], words(account['kind'])),
+            if (account['mask'] != null) '••${account['mask']}',
+          ].join(' · '),
+        ),
+        trailing: Text(
+          money(balance?['amount']),
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        onTap: onTap,
       ),
-      trailing: Text(
-        money(balance?['amount']),
-        style: const TextStyle(fontWeight: FontWeight.w700),
-      ),
-      onTap: onTap,
     );
   }
 }
@@ -165,29 +168,30 @@ class _AccountDetail extends StatelessWidget {
               icon: const Icon(Icons.receipt_long_outlined),
               label: const Text('View transactions'),
             ),
-            OutlinedButton(
-              onPressed: () async {
-                final name = await _requestName(
-                  context,
-                  label(item['displayName'], ''),
-                );
-                if (name == null || !context.mounted) return;
-                try {
-                  await client.request(
-                    '/accounts/$id/name',
-                    method: 'PATCH',
-                    body: {
-                      'displayName': name,
-                      'expectedRevision': item['revision'],
-                    },
+            if (client.permissions.canManageSharedFinances)
+              OutlinedButton(
+                onPressed: () async {
+                  final name = await _requestName(
+                    context,
+                    label(item['displayName'], ''),
                   );
-                  if (context.mounted) await reload();
-                } catch (e) {
-                  if (context.mounted) showMessage(context, errorMessage(e));
-                }
-              },
-              child: const Text('Rename account'),
-            ),
+                  if (name == null || !context.mounted) return;
+                  try {
+                    await client.request(
+                      '/accounts/$id/name',
+                      method: 'PATCH',
+                      body: {
+                        'displayName': name,
+                        'expectedRevision': item['revision'],
+                      },
+                    );
+                    if (context.mounted) await reload();
+                  } catch (e) {
+                    if (context.mounted) showMessage(context, errorMessage(e));
+                  }
+                },
+                child: const Text('Rename account'),
+              ),
           ];
         },
       ),

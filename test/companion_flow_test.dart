@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:greenhouse/greenhouse_client.dart';
+import 'package:greenhouse/ambient_lighting.dart';
 import 'package:greenhouse/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -71,11 +72,39 @@ void main() {
     expect(find.text(r'$12,345.67'), findsOneWidget);
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
+    expect(find.byType(AmbientLighting), findsOneWidget);
+    final lightingSwitch = find.widgetWithText(
+      SwitchListTile,
+      'Ambient daylight and moonlight',
+    );
+    await tester.ensureVisible(lightingSwitch);
+    await tester.tap(lightingSwitch);
+    await tester.pumpAndSettle();
+    expect(find.byType(AmbientLighting), findsNothing);
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getBool(
+        client.identity!.preferenceKey('ambient_lighting', client.origin),
+      ),
+      isFalse,
+    );
+    await tester.tap(lightingSwitch);
+    await tester.pumpAndSettle();
+    expect(find.byType(AmbientLighting), findsOneWidget);
+    expect(
+      preferences.getBool(
+        client.identity!.preferenceKey('ambient_lighting', client.origin),
+      ),
+      isTrue,
+    );
     await tester.scrollUntilVisible(
       find.text('Unlink device'),
       250,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Unlink device'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Unlink device'));
     await tester.pumpAndSettle();
     expect(find.text('Unlink this device?'), findsOneWidget);
@@ -97,6 +126,7 @@ void main() {
 class _FixtureClient extends GreenhouseClient {
   Uri? selected;
   bool didUnlink = false;
+  HouseholdIdentity? selectedIdentity;
 
   @override
   Uri? get origin => selected;
@@ -119,7 +149,18 @@ class _FixtureClient extends GreenhouseClient {
   }
 
   @override
-  Future<Json> signIn(String email, String password) async => {'email': email};
+  HouseholdIdentity? get identity => selectedIdentity;
+
+  @override
+  Future<HouseholdIdentity> signIn(String email, String password) async {
+    return selectedIdentity = HouseholdIdentity.fromJson({
+      'id': 'owner-id',
+      'email': email,
+      'displayName': 'Garden Owner',
+      'householdId': 'household-1',
+      'role': 'owner',
+    })!;
+  }
 
   @override
   Future<void> validateSession() async {}
@@ -134,6 +175,7 @@ class _FixtureClient extends GreenhouseClient {
   Future<bool> disconnect() async {
     didUnlink = true;
     selected = null;
+    selectedIdentity = null;
     return true;
   }
 

@@ -10,7 +10,7 @@ class EntryScreen extends StatefulWidget {
     super.key,
   });
   final GreenhouseClient client;
-  final ValueChanged<Json> onSignedIn;
+  final ValueChanged<HouseholdIdentity> onSignedIn;
 
   @override
   State<EntryScreen> createState() => _EntryScreenState();
@@ -36,9 +36,9 @@ class _EntryScreenState extends State<EntryScreen> {
   }
 
   Future<void> unlock() => run(() async {
-    final owner = await widget.client.unlock();
-    if (owner != null && mounted) {
-      widget.onSignedIn(owner);
+    final identity = await widget.client.unlock();
+    if (identity != null && mounted) {
+      widget.onSignedIn(identity);
     } else if (mounted && !widget.client.hasBiometricSession) {
       setState(
         () => error = 'Your saved session expired. Sign in with your password.',
@@ -73,13 +73,13 @@ class _EntryScreenState extends State<EntryScreen> {
   Future<void> signIn() async {
     if (form.currentState?.validate() != true) return;
     await run(() async {
-      final owner = await widget.client.signIn(
+      final identity = await widget.client.signIn(
         email.text.trim(),
         password.text,
       );
       if (!mounted) return;
       password.clear();
-      widget.onSignedIn(owner);
+      widget.onSignedIn(identity);
     });
   }
 

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -41,19 +42,103 @@ class GreenhouseException implements Exception {
       : 'GreenhouseException($statusCode): $message';
 }
 
+enum HouseholdRole { owner, admin, gardener, unknown }
+
+@immutable
+class HouseholdPermissions {
+  const HouseholdPermissions(this.role);
+
+  final HouseholdRole role;
+
+  bool get canManageSharedFinances =>
+      role == HouseholdRole.owner || role == HouseholdRole.admin;
+
+  bool get canAcknowledgeNotifications =>
+      role != HouseholdRole.gardener && role != HouseholdRole.unknown;
+}
+
+@immutable
+class HouseholdIdentity {
+  const HouseholdIdentity({
+    required this.memberId,
+    required this.email,
+    required this.displayName,
+    required this.role,
+    required this.householdId,
+    required this.owner,
+  });
+
+  final String email;
+  final String memberId;
+  final String? displayName;
+  final HouseholdRole role;
+  final String householdId;
+  final Json owner;
+
+  HouseholdPermissions get permissions => HouseholdPermissions(role);
+
+  static HouseholdIdentity? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final owner = value.map((key, value) => MapEntry('$key', value));
+    final email = owner['email'];
+    final memberId = owner['id'];
+    final householdId = owner['householdId'];
+    final rawRole = owner['role'];
+    if (memberId is! String ||
+        memberId.trim().isEmpty ||
+        email is! String ||
+        email.trim().isEmpty ||
+        householdId is! String ||
+        householdId.trim().isEmpty ||
+        rawRole is! String ||
+        rawRole.trim().isEmpty) {
+      return null;
+    }
+    return HouseholdIdentity(
+      memberId: memberId.trim(),
+      email: email.trim(),
+      displayName: owner['displayName'] is String
+          ? (owner['displayName'] as String).trim()
+          : null,
+      role: switch (rawRole) {
+        'owner' => HouseholdRole.owner,
+        'admin' => HouseholdRole.admin,
+        'gardener' => HouseholdRole.gardener,
+        _ => HouseholdRole.unknown,
+      },
+      householdId: householdId.trim(),
+      owner: owner,
+    );
+  }
+
+  String preferenceScope(Uri? origin) => sha256
+      .convert(
+        utf8.encode('${origin?.toString() ?? ''}|$householdId|$memberId'),
+      )
+      .toString();
+
+  String preferenceKey(String name, Uri? origin) =>
+      'greenhouse.$name.${preferenceScope(origin)}';
+}
+
 /// Client for a single greenhouse.
 ///
 /// One instance is expected to live for the lifetime of the app. The origin is
 /// the only network state that is persisted; the bearer token lives in memory
 /// unless the user explicitly enables biometric unlock.
 class GreenhouseClient {
-  GreenhouseClient({this.onUnauthorized, this.onNotification});
+  GreenhouseClient({
+    this.onUnauthorized,
+    this.onNotification,
+    http.Client? httpClient,
+  }) : _http = httpClient ?? http.Client();
 
   static const _originKey = 'greenhouse.origin';
   static const _deviceIdKey = 'greenhouse.device_id';
   static const _pushEnabledKey = 'greenhouse.push_enabled';
   static const _biometricKey = 'greenhouse.biometric_session';
   static const _biometricOriginKey = 'greenhouse.biometric_origin';
+  static const _biometricScopeKey = 'greenhouse.biometric_scope';
   static const _serviceType = '_greenhouse._tcp';
   static const _requestTimeout = Duration(seconds: 15);
   static const _discoveryWindow = Duration(seconds: 4);
@@ -75,7 +160,7 @@ class GreenhouseClient {
   final VoidCallback? onUnauthorized;
   final VoidCallback? onNotification;
 
-  final http.Client _http = http.Client();
+  final http.Client _http;
   final LocalAuthentication _localAuth = LocalAuthentication();
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
     aOptions: AndroidOptions.biometric(
@@ -91,6 +176,7 @@ class GreenhouseClient {
   SharedPreferences? _preferences;
   Uri? _origin;
   String? _token;
+  HouseholdIdentity? _identity;
   bool _initialized = false;
   bool _hasBiometricSession = false;
   bool _pushEnabled = false;
@@ -121,6 +207,12 @@ class GreenhouseClient {
   /// Whether a bearer token is currently held in memory.
   bool get isSignedIn => _token != null;
 
+  HouseholdIdentity? get identity => _identity;
+
+  HouseholdPermissions get permissions =>
+      _identity?.permissions ??
+      const HouseholdPermissions(HouseholdRole.unknown);
+
   /// Whether Firebase is configured and initialized.
   bool get pushAvailable => _firebaseReady;
 
@@ -143,7 +235,7 @@ class GreenhouseClient {
           await prefs.remove(_originKey);
         }
       }
-      _pushEnabled = prefs.getBool(_pushEnabledKey) ?? false;
+      _pushEnabled = false;
     } catch (_) {
       // Preferences are recoverable; manual connection still works.
     }
@@ -225,6 +317,8 @@ class GreenhouseClient {
       _originGeneration++;
       _authGeneration++;
       _token = null;
+      _identity = null;
+      _pushEnabled = false;
       _pushToken = null;
     }
 
@@ -239,8 +333,9 @@ class GreenhouseClient {
     return info.name;
   }
 
-  /// Signs in and returns the owner object. The token stays in memory only.
-  Future<Json> signIn(String email, String password) async {
+  /// Signs in and returns the current household identity. The token stays in
+  /// memory only.
+  Future<HouseholdIdentity> signIn(String email, String password) async {
     if (email.trim().isEmpty || password.isEmpty) {
       throw const GreenhouseException('Email and password are required.');
     }
@@ -265,24 +360,41 @@ class GreenhouseClient {
     }
 
     final token = result['token'];
-    final owner = _asJson(result['owner']);
-    if (token is! String || token.isEmpty || owner == null) {
+    final identity = HouseholdIdentity.fromJson(result['owner']);
+    if (token is! String || token.isEmpty || identity == null) {
       throw const GreenhouseException(
         'The greenhouse returned an invalid sign-in response.',
       );
     }
 
+    // A successful password sign-in replaces this device's server session, so
+    // any saved biometric token for the prior identity is stale.
+    if (!await _clearBiometricCredential()) {
+      throw const GreenhouseException(
+        'Could not clear the previous biometric session. Sign in again after restarting the app.',
+      );
+    }
+    if (generation != _authGeneration || _origin != origin) {
+      throw const GreenhouseException('Sign in was cancelled.');
+    }
+
     _authGeneration++;
     _token = token;
+    _identity = identity;
+    final sessionGeneration = _authGeneration;
+    await _restoreAccountPreferences(identity, sessionGeneration);
+    if (sessionGeneration != _authGeneration || _token != token) {
+      throw const GreenhouseException('Sign in was cancelled.');
+    }
     unawaited(_syncPushAfterAuth());
-    return owner;
+    return identity;
   }
 
   /// Prompts for biometrics, then validates the saved session with the server.
   ///
   /// Returns the owner on success, or null when biometrics were unavailable,
   /// cancelled, or the saved session is no longer valid.
-  Future<Json?> unlock() async {
+  Future<HouseholdIdentity?> unlock() async {
     final origin = _origin;
     if (origin == null) return null;
 
@@ -324,25 +436,70 @@ class GreenhouseClient {
       return null;
     }
 
-    final owner = _sessionOwner(response);
-    if (owner == null) {
+    final identity = _sessionOwner(response);
+    if (identity == null || saved.scope != identity.preferenceScope(origin)) {
       await _discardStaleCredential(saved.token);
       return null;
     }
 
     _authGeneration++;
     _token = saved.token;
+    _identity = identity;
     _hasBiometricSession = true;
+    final sessionGeneration = _authGeneration;
+    await _restoreAccountPreferences(identity, sessionGeneration);
+    if (sessionGeneration != _authGeneration || _token != saved.token) {
+      return null;
+    }
     unawaited(_syncPushAfterAuth());
-    return owner;
+    return identity;
   }
 
   /// Checks that the current in-memory session remains valid on the server.
   Future<void> validateSession() async {
     final response = await request('/auth/session');
-    if (_sessionOwner(response) == null) {
+    final identity = _sessionOwner(response);
+    if (identity == null) {
       throw const GreenhouseException('Invalid session response.');
     }
+    final previousScope = _identity?.preferenceScope(_origin);
+    _identity = identity;
+    if (previousScope != identity.preferenceScope(_origin)) {
+      await _restoreAccountPreferences(identity, _authGeneration);
+    }
+  }
+
+  bool _sharedMutation(String path, String method) {
+    if (method.toUpperCase() == 'GET' || method.toUpperCase() == 'HEAD') {
+      return false;
+    }
+    final normalized = path.startsWith('/') ? path : '/$path';
+    return RegExp(r'^/accounts/[^/]+/name$').hasMatch(normalized) ||
+        RegExp(r'^/transactions/[^/]+/annotation$').hasMatch(normalized);
+  }
+
+  String _pushPreferenceKey(HouseholdIdentity? identity, Uri? origin) =>
+      identity == null
+      ? _pushEnabledKey
+      : identity.preferenceKey('push_enabled', origin);
+
+  Future<void> _restoreAccountPreferences(
+    HouseholdIdentity identity,
+    int generation,
+  ) async {
+    var enabled = false;
+    try {
+      enabled =
+          (await _preferencesInstance()).getBool(
+            _pushPreferenceKey(identity, _origin),
+          ) ==
+          true;
+    } catch (_) {}
+    if (generation != _authGeneration || _identity != identity) return;
+    _pushEnabled = enabled;
+    try {
+      await _messaging?.setAutoInitEnabled(enabled);
+    } catch (_) {}
   }
 
   /// Authenticates locally without reading or recovering a session token.
@@ -370,7 +527,8 @@ class GreenhouseClient {
   Future<bool> rememberWithBiometrics() async {
     final origin = _origin;
     final token = _token;
-    if (origin == null || token == null) return false;
+    final identity = _identity;
+    if (origin == null || token == null || identity == null) return false;
     if (!await canUseBiometrics()) return false;
 
     final generation = _authGeneration;
@@ -389,7 +547,11 @@ class GreenhouseClient {
     try {
       await _secureStorage.write(
         key: _biometricKey,
-        value: jsonEncode({'origin': origin.toString(), 'token': token}),
+        value: jsonEncode({
+          'origin': origin.toString(),
+          'scope': identity.preferenceScope(origin),
+          'token': token,
+        }),
       );
       if (generation != _authGeneration ||
           originGeneration != _originGeneration ||
@@ -400,6 +562,13 @@ class GreenhouseClient {
       }
       final prefs = await _preferencesInstance();
       if (!await prefs.setString(_biometricOriginKey, origin.toString())) {
+        await _discardStaleCredential(token, force: true);
+        return false;
+      }
+      if (!await prefs.setString(
+        _biometricScopeKey,
+        identity.preferenceScope(origin),
+      )) {
         await _discardStaleCredential(token, force: true);
         return false;
       }
@@ -436,6 +605,7 @@ class GreenhouseClient {
   Future<bool> _endSession({required bool clearOrigin}) async {
     final origin = _origin;
     final token = _token;
+    final identity = _identity;
     final hadBiometricSession = _hasBiometricSession;
     final removePushToken = clearOrigin && _pushEnabled;
 
@@ -448,6 +618,8 @@ class GreenhouseClient {
       _pushToken = null;
     }
     _token = null;
+    _identity = null;
+    _pushEnabled = false;
 
     var localOk = await _clearBiometricCredential();
     if (clearOrigin) {
@@ -456,15 +628,21 @@ class GreenhouseClient {
         if (prefs.containsKey(_originKey) && !await prefs.remove(_originKey)) {
           localOk = false;
         }
-        if (prefs.containsKey(_pushEnabledKey) &&
-            !await prefs.remove(_pushEnabledKey)) {
+        final pushKey = _pushPreferenceKey(identity, origin);
+        if (prefs.containsKey(pushKey) && !await prefs.remove(pushKey)) {
           localOk = false;
         }
       } catch (_) {
         localOk = false;
       }
+    }
+    try {
+      await _messaging?.setAutoInitEnabled(false);
+    } catch (_) {
+      localOk = false;
+    }
+    if (clearOrigin) {
       try {
-        await _messaging?.setAutoInitEnabled(false);
         if (removePushToken) {
           // Invalidate this installation's Firebase token even if the old instance is offline.
           await _messaging?.deleteToken().timeout(const Duration(seconds: 5));
@@ -511,14 +689,28 @@ class GreenhouseClient {
     if (_token == null) {
       throw const GreenhouseException('Sign in first.');
     }
-    return _send(
+    if (_sharedMutation(path, method) && !permissions.canManageSharedFinances) {
+      throw const GreenhouseException(
+        'Your household role does not allow this change.',
+        statusCode: 403,
+      );
+    }
+    final token = _token!;
+    final generation = _authGeneration;
+    final response = await _send(
       origin: origin,
       path: path,
       method: method,
       body: body,
       query: query,
-      token: _token,
+      token: token,
     );
+    if (generation != _authGeneration || _origin != origin || _token != token) {
+      throw const GreenhouseException(
+        'This request belongs to an older session.',
+      );
+    }
+    return response;
   }
 
   /// Enables or disables push for the selected greenhouse.
@@ -542,7 +734,12 @@ class GreenhouseClient {
       }
       try {
         final prefs = await _preferencesInstance();
-        if (!await prefs.setBool(_pushEnabledKey, false)) return false;
+        if (!await prefs.setBool(
+          _pushPreferenceKey(_identity, _origin),
+          false,
+        )) {
+          return false;
+        }
         await _messaging?.setAutoInitEnabled(false);
       } catch (_) {
         return false;
@@ -593,7 +790,7 @@ class GreenhouseClient {
         return false;
       }
       final prefs = await _preferencesInstance();
-      if (!await prefs.setBool(_pushEnabledKey, true)) {
+      if (!await prefs.setBool(_pushPreferenceKey(_identity, origin), true)) {
         await _sendPushToken(null, pushGeneration: pushGeneration);
         return false;
       }
@@ -880,7 +1077,12 @@ class GreenhouseClient {
     _authGeneration++;
     _pushGeneration++;
     _token = null;
+    _identity = null;
+    _pushEnabled = false;
     await _clearBiometricCredential();
+    try {
+      await _messaging?.setAutoInitEnabled(false);
+    } catch (_) {}
     onUnauthorized?.call();
   }
 
@@ -915,7 +1117,9 @@ class GreenhouseClient {
         }
       }
     } catch (_) {}
-    return 'The greenhouse returned error ${response.statusCode}.';
+    return response.statusCode == 403
+        ? 'You do not have permission to make this change.'
+        : 'The greenhouse returned error ${response.statusCode}.';
   }
 
   Json? _decodeJson(String source) {
@@ -928,15 +1132,8 @@ class GreenhouseClient {
     return null;
   }
 
-  Json? _sessionOwner(Json response) {
-    if (response.containsKey('owner')) return _asJson(response['owner']);
-    return response.isEmpty ? null : response;
-  }
-
-  Json? _asJson(Object? value) {
-    if (value is! Map) return null;
-    return value.map((key, value) => MapEntry('$key', value));
-  }
+  HouseholdIdentity? _sessionOwner(Json response) =>
+      HouseholdIdentity.fromJson(response['owner'] ?? response);
 
   Uri? _canonicalOrigin(String address) {
     var raw = address.trim();
@@ -1024,7 +1221,8 @@ class GreenhouseClient {
     }
   }
 
-  Future<({Uri origin, String token})?> _readBiometricSession() async {
+  Future<({Uri origin, String token, String scope})?>
+  _readBiometricSession() async {
     try {
       final raw = await _secureStorage.read(key: _biometricKey);
       if (raw == null || raw.isEmpty) return null;
@@ -1032,10 +1230,17 @@ class GreenhouseClient {
       if (decoded is! Map) return null;
       final origin = decoded['origin'];
       final token = decoded['token'];
-      if (origin is! String || token is! String || token.isEmpty) return null;
+      final scope = decoded['scope'];
+      if (origin is! String ||
+          token is! String ||
+          token.isEmpty ||
+          scope is! String ||
+          scope.isEmpty) {
+        return null;
+      }
       final parsed = _canonicalOrigin(origin);
       if (parsed == null) return null;
-      return (origin: parsed, token: token);
+      return (origin: parsed, token: token, scope: scope);
     } catch (_) {
       return null;
     }
@@ -1048,11 +1253,19 @@ class GreenhouseClient {
       return;
     }
     try {
-      final marker = (await _preferencesInstance()).getString(
-        _biometricOriginKey,
-      );
+      final prefs = await _preferencesInstance();
+      final marker = prefs.getString(_biometricOriginKey);
+      final scope = prefs.getString(_biometricScopeKey);
       _hasBiometricSession =
-          marker != null && _canonicalOrigin(marker) == origin;
+          marker != null &&
+          _canonicalOrigin(marker) == origin &&
+          scope != null &&
+          scope.isNotEmpty;
+      if (marker != null &&
+          _canonicalOrigin(marker) == origin &&
+          scope == null) {
+        await _clearBiometricCredential();
+      }
     } catch (_) {
       _hasBiometricSession = false;
     }
@@ -1064,7 +1277,9 @@ class GreenhouseClient {
     try {
       final prefs = await _preferencesInstance();
       marker = prefs.containsKey(_biometricOriginKey);
-      final hadCredential = force || marker || _hasBiometricSession;
+      final scopeMarker = prefs.containsKey(_biometricScopeKey);
+      final hadCredential =
+          force || marker || scopeMarker || _hasBiometricSession;
       if (hadCredential) {
         try {
           await _secureStorage.delete(key: _biometricKey);
@@ -1073,6 +1288,7 @@ class GreenhouseClient {
         }
       }
       if (marker && !await prefs.remove(_biometricOriginKey)) ok = false;
+      if (scopeMarker && !await prefs.remove(_biometricScopeKey)) ok = false;
       _hasBiometricSession = false;
     } catch (_) {
       ok = false;

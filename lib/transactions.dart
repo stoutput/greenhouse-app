@@ -286,76 +286,100 @@ class _TransactionDetailState extends State<_TransactionDetail> {
           ),
         ),
         const SectionTitle('Details'),
-        FutureBuilder<Json>(
-          future: categories,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Text(
-                'Categories unavailable. ${errorMessage(snapshot.error!)}',
-              );
-            }
-            if (!snapshot.hasData) return const LinearProgressIndicator();
-            final choices = objects(snapshot.data!['data']);
-            return DropdownButtonFormField<String>(
-              initialValue: category,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Category'),
-              items: [
-                const DropdownMenuItem(
-                  value: '',
-                  child: Text('Automatic category'),
+        if (!widget.client.permissions.canManageSharedFinances)
+          Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Transaction details are read-only for your household role.',
                 ),
-                for (final choice in choices)
-                  DropdownMenuItem(
-                    value: label(choice['id']),
-                    child: Text(label(choice['name'])),
-                  ),
-                if (category.isNotEmpty &&
-                    !choices.any((choice) => choice['id'] == category))
-                  DropdownMenuItem(
-                    value: category,
-                    child: Text(
-                      label(widget.row['categoryName'], 'Current category'),
-                    ),
-                  ),
+                const SizedBox(height: 10),
+                Text(
+                  'Category: ${label(widget.row['categoryName'], label(annotation['categoryId'], 'Automatic'))}',
+                ),
+                Text('Notes: ${label(annotation['notes'], 'None')}'),
+                Text(
+                  'Excluded from spending: ${annotation['isExcluded'] == true ? 'Yes' : 'No'}',
+                ),
+                Text(
+                  'Review status: ${annotation['reviewState'] == 'reviewed' ? 'Reviewed' : 'Not reviewed'}',
+                ),
               ],
-              onChanged: saving
-                  ? null
-                  : (value) => setState(() => category = value ?? ''),
-            );
-          },
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: notes,
-          enabled: !saving,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Notes',
-            alignLabelWithHint: true,
+            ),
           ),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Exclude from spending'),
-          value: excluded,
-          onChanged: saving
-              ? null
-              : (value) => setState(() => excluded = value),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Mark as reviewed'),
-          value: reviewed,
-          onChanged: saving
-              ? null
-              : (value) => setState(() => reviewed = value),
-        ),
-        const SizedBox(height: 10),
-        FilledButton(
-          onPressed: saving ? null : save,
-          child: Text(saving ? 'Saving…' : 'Save changes'),
-        ),
+        if (widget.client.permissions.canManageSharedFinances) ...[
+          FutureBuilder<Json>(
+            future: categories,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text(
+                  'Categories unavailable. ${errorMessage(snapshot.error!)}',
+                );
+              }
+              if (!snapshot.hasData) return const LinearProgressIndicator();
+              final choices = objects(snapshot.data!['data']);
+              return DropdownButtonFormField<String>(
+                initialValue: category,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Category'),
+                items: [
+                  const DropdownMenuItem(
+                    value: '',
+                    child: Text('Automatic category'),
+                  ),
+                  for (final choice in choices)
+                    DropdownMenuItem(
+                      value: label(choice['id']),
+                      child: Text(label(choice['name'])),
+                    ),
+                  if (category.isNotEmpty &&
+                      !choices.any((choice) => choice['id'] == category))
+                    DropdownMenuItem(
+                      value: category,
+                      child: Text(
+                        label(widget.row['categoryName'], 'Current category'),
+                      ),
+                    ),
+                ],
+                onChanged: saving
+                    ? null
+                    : (value) => setState(() => category = value ?? ''),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: notes,
+            enabled: !saving,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Notes',
+              alignLabelWithHint: true,
+            ),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Exclude from spending'),
+            value: excluded,
+            onChanged: saving
+                ? null
+                : (value) => setState(() => excluded = value),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Mark as reviewed'),
+            value: reviewed,
+            onChanged: saving
+                ? null
+                : (value) => setState(() => reviewed = value),
+          ),
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: saving ? null : save,
+            child: Text(saving ? 'Saving…' : 'Save changes'),
+          ),
+        ],
       ],
     ),
   );

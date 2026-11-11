@@ -246,9 +246,14 @@ class _Client extends GreenhouseClient {
   @override
   bool get hasBiometricSession => true;
   @override
-  Future<Json?> unlock() async {
+  Future<HouseholdIdentity?> unlock() async {
     unlocks++;
-    return {'email': 'owner@example.test'};
+    return HouseholdIdentity.fromJson({
+      'id': 'owner-id',
+      'email': 'owner@example.test',
+      'householdId': 'household-1',
+      'role': 'owner',
+    });
   }
 
   @override

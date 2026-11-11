@@ -11,8 +11,8 @@ import 'greenhouse_client.dart';
 
 /// The PIN protects only the current in-memory session, never the saved token.
 class AppLock {
-  static const _key = 'greenhouse.lock_pin';
-  static const _enabledKey = 'greenhouse.lock_enabled';
+  static const _legacyKey = 'greenhouse.lock_pin';
+  static const _legacyEnabledKey = 'greenhouse.lock_enabled';
   final _storage = const FlutterSecureStorage(
     aOptions: AndroidOptions(storageNamespace: 'greenhouse_app_lock'),
     iOptions: IOSOptions(
@@ -21,22 +21,36 @@ class AppLock {
   );
   bool enabled = true;
   bool hasPin = false;
+  String? _identityScope;
+  int _identityGeneration = 0;
   int failures = 0;
   DateTime? retryAt;
 
   Future<void> initialize() async {
-    final prefs = await SharedPreferences.getInstance();
-    enabled = prefs.getBool(_enabledKey) ?? true;
+    enabled = true;
+    hasPin = false;
+  }
+
+  Future<void> useIdentity(String? scope) async {
+    final generation = ++_identityGeneration;
+    _identityScope = scope;
+    enabled = true;
+    hasPin = false;
+    if (scope == null) return;
     try {
-      hasPin = await _storage.read(key: _key) != null;
+      final stored = await _storage.read(key: _pinKey);
+      final prefs = await SharedPreferences.getInstance();
+      if (generation == _identityGeneration) {
+        hasPin = stored != null;
+        enabled = prefs.getBool(_enabledPreferenceKey) ?? true;
+      }
     } catch (_) {
       // A fresh sign-in can set a new PIN if the device storage was reset.
-      hasPin = false;
     }
   }
 
   Future<void> clearPin() async {
-    await _storage.delete(key: _key);
+    await _storage.delete(key: _pinKey);
     hasPin = false;
     failures = 0;
     retryAt = null;
@@ -44,7 +58,7 @@ class AppLock {
 
   Future<void> setEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
-    if (!await prefs.setBool(_enabledKey, value)) {
+    if (!await prefs.setBool(_enabledPreferenceKey, value)) {
       throw Exception('Could not save lock setting.');
     }
     enabled = value;
@@ -61,7 +75,7 @@ class AppLock {
   Future<void> setPin(String pin) async {
     final random = Random.secure();
     final salt = base64Encode(List.generate(16, (_) => random.nextInt(256)));
-    await _storage.write(key: _key, value: '$salt:${_derive(pin, salt)}');
+    await _storage.write(key: _pinKey, value: '$salt:${_derive(pin, salt)}');
     hasPin = true;
     failures = 0;
     retryAt = null;
@@ -69,7 +83,7 @@ class AppLock {
 
   Future<bool> verify(String pin) async {
     if (retryAt != null && DateTime.now().isBefore(retryAt!)) return false;
-    final stored = await _storage.read(key: _key);
+    final stored = await _storage.read(key: _pinKey);
     final parts = stored?.split(':');
     if (parts == null || parts.length != 2) {
       throw Exception('PIN unavailable. Sign in again.');
@@ -91,6 +105,20 @@ class AppLock {
       );
     }
     return false;
+  }
+
+  String get _pinKey {
+    final scope = _identityScope;
+    if (scope == null) return _legacyKey;
+    final digest = sha256.convert(utf8.encode(scope)).toString();
+    return 'greenhouse.lock_pin.$digest';
+  }
+
+  String get _enabledPreferenceKey {
+    final scope = _identityScope;
+    if (scope == null) return _legacyEnabledKey;
+    final digest = sha256.convert(utf8.encode(scope)).toString();
+    return 'greenhouse.lock_enabled.$digest';
   }
 }
 

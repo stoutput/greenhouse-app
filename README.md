@@ -4,6 +4,10 @@ This Flutter app is the Android-first companion for a self-hosted [GreenHouse](h
 
 The app covers the financial overview, transaction search and annotation, account balances and renaming, spending plan review, recurring payments and spending insights, and the notification inbox. Owner setup, provider enrollment and repair, imports, and plugin administration are handled in the web app.
 
+Ambient daylight and moonlight are enabled by default. Turn them off under **Settings → Appearance**.
+The subtle rays use the device clock for a decorative day/night cycle, without requesting location
+access or running a continuous animation. The preference is saved per account and instance on this device.
+
 ## Run on Android
 
 Install Flutter 3.47.9 and Android Studio with the Android SDK. The app requires Android 9 or later.
@@ -32,9 +36,11 @@ as Actions **variables**. Leave them all unset to build without push.
 
 ## Connect an instance
 
-1. Complete owner setup in GreenHouse web. Use a server build that exposes `/api/v1/mobile/info` and an HTTPS address with a certificate trusted by the phone.
+1. Complete owner setup in GreenHouse web. Invited household members accept their invitation and finish account setup through the web link before signing in here. Use a server build that exposes `/api/v1/mobile/info` and an HTTPS address with a certificate trusted by the phone.
 2. At the app’s setup screen, search the LAN or enter the HTTPS origin. LAN search uses the `_greenhouse._tcp` DNS-SD service with an `origin` TXT record.
-3. Sign in with your existing owner credentials. Use your device screen lock, or set an unlock PIN if your device has none, and optionally enable biometrics for sign-in. You can change these options in app Settings.
+3. Sign in with your existing GreenHouse credentials. The app shows your household role in Settings. Owners and admins can make shared financial changes; gardeners can view household finances and manage personal device settings. Household invitations and role management remain in GreenHouse web. Use your device screen lock, or set an unlock PIN if your device has none, and optionally enable biometrics for sign-in. You can change these options in app Settings.
+
+The app connects to the server you select. Household identity and permissions come from that server; the mobile app does not provide cloud-wide tenant selection or household administration.
 
 For a reverse-proxy installation, set the backend’s `GREENHOUSE_PUBLIC_ORIGIN` and `GREENHOUSE_MOBILE_TRUSTED_PROXIES` to the public HTTPS origin and the exact immediate proxy IPs. The proxy must overwrite `X-Forwarded-Proto` with `https` for secure requests, and the backend port must be reachable only through the intended proxy. See the GreenHouse deployment guide for DNS-SD publishing with Docker.
 
@@ -58,7 +64,7 @@ iOS push also requires an Apple signing and APNs configuration for the iOS targe
 
 ## Data and security
 
-The app sends your owner credentials and financial requests to the HTTPS instance you select.
+The app sends your GreenHouse credentials and financial requests to the HTTPS instance you select.
 It stores the selected server address on the device. If you enable biometric unlock, the app
 stores the session token in biometric-protected storage. By default, returning to the app requires your device screen lock or, if none is configured, the GreenHouse unlock PIN, and a valid server session. The PIN protects only an active session;
 a fresh app launch requires biometrics or your account credentials. The app hides its contents in

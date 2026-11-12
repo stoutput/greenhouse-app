@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'accounts.dart';
 import 'ambient_lighting.dart';
 import 'app_lock.dart';
+import 'cards.dart';
+import 'companion_navigation.dart';
 import 'finance_widgets.dart';
 import 'greenhouse_client.dart';
 import 'greenhouse_theme.dart';
@@ -427,19 +429,166 @@ class _ControlCenter extends StatefulWidget {
   State<_ControlCenter> createState() => _ControlCenterState();
 }
 
-class _ControlCenterState extends State<_ControlCenter> {
-  int tab = 0;
+class _ControlCenterState extends State<_ControlCenter>
+    with WidgetsBindingObserver {
+  String page = CompanionPage.overview;
+  String defaultPage = CompanionPage.overview;
+  String savedDefaultPage = CompanionPage.overview;
+  bool cardsEnabled = false;
+  String cardsTitle = 'Cards';
+  int navigationRevision = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _restoreNavigation();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshCardsDiscovery());
+    }
+  }
+
+  Future<void> _restoreNavigation() async {
+    final initialRevision = navigationRevision;
+    String? saved;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      saved = prefs.getString(
+        widget.owner.preferenceKey('default_page', widget.client.origin),
+      );
+    } catch (_) {}
+    if (!mounted) return;
+    if (saved != CompanionPage.cards && navigationRevision == initialRevision) {
+      setState(() {
+        savedDefaultPage = saved ?? CompanionPage.overview;
+        defaultPage = CompanionPage.resolveDefault(
+          savedDefaultPage,
+          cardsEnabled: false,
+        );
+        page = defaultPage;
+      });
+    } else {
+      savedDefaultPage = saved ?? CompanionPage.overview;
+    }
+
+    Json? discovery;
+    try {
+      discovery = await widget.client.request('/cards/navigation');
+    } catch (_) {
+      // A missing or unavailable plugin leaves the core destinations usable.
+    }
+    if (!mounted) return;
+    final navigationPage = object(discovery?['navigationPage']);
+    final available = discovery?['enabled'] == true && navigationPage.isNotEmpty;
+    setState(() {
+      cardsEnabled = available;
+      cardsTitle = label(navigationPage['title'], 'Cards');
+      defaultPage = CompanionPage.resolveDefault(
+        savedDefaultPage,
+        cardsEnabled: available,
+      );
+      page = CompanionPage.restorePage(
+        savedPage: savedDefaultPage,
+        currentPage: page,
+        cardsEnabled: available,
+        startingRevision: initialRevision,
+        currentRevision: navigationRevision,
+      );
+    });
+  }
+
+  Future<void> _refreshCardsDiscovery() async {
+    Json? discovery;
+    try {
+      discovery = await widget.client.request('/cards/navigation');
+    } catch (_) {
+      // Treat discovery errors like a temporarily unavailable contribution.
+    }
+    if (!mounted) return;
+    final navigationPage = object(discovery?['navigationPage']);
+    final available = discovery?['enabled'] == true && navigationPage.isNotEmpty;
+    setState(() {
+      cardsEnabled = available;
+      cardsTitle = label(navigationPage['title'], 'Cards');
+      defaultPage = CompanionPage.resolveDefault(
+        savedDefaultPage,
+        cardsEnabled: available,
+      );
+      if (!available && page == CompanionPage.cards) {
+        page = CompanionPage.resolveDefault(
+          savedDefaultPage,
+          cardsEnabled: false,
+        );
+      }
+    });
+  }
+
+  void _setDefaultPage(String value) {
+    setState(() {
+      savedDefaultPage = value;
+      defaultPage = CompanionPage.resolveDefault(
+        value,
+        cardsEnabled: cardsEnabled,
+      );
+    });
+    unawaited(
+      SharedPreferences.getInstance().then(
+        (prefs) => prefs.setString(
+          widget.owner.preferenceKey('default_page', widget.client.origin),
+          value,
+        ),
+      ),
+    );
+  }
+
+  void _cardsDisabled() {
+    if (!mounted) return;
+    setState(() {
+      cardsEnabled = false;
+      if (page == CompanionPage.cards) {
+        page = CompanionPage.resolveDefault(
+          savedDefaultPage,
+          cardsEnabled: false,
+        );
+      }
+    });
+  }
+
+  void _openPage(String value) {
+    navigationRevision++;
+    setState(() => page = value);
+    if (value == CompanionPage.more) unawaited(_refreshCardsDiscovery());
+  }
 
   @override
   Widget build(BuildContext context) {
     final client = widget.client;
-    final screens = [
-      Overview(client: client, onActivity: () => setState(() => tab = 1)),
-      Activity(client: client),
-      Accounts(client: client),
-      Planning(client: client),
-      Insights(client: client),
-    ];
+    final screen = switch (page) {
+      CompanionPage.overview => Overview(
+        client: client,
+        onActivity: () => _openPage(CompanionPage.activity),
+      ),
+      CompanionPage.activity => Activity(client: client),
+      CompanionPage.accounts => Accounts(client: client),
+      CompanionPage.plan => Planning(client: client),
+      CompanionPage.insights => Insights(client: client),
+      CompanionPage.cards => Cards(client: client, onDisabled: _cardsDisabled),
+      _ => MorePages(
+        cardsEnabled: cardsEnabled,
+        cardsTitle: cardsTitle,
+        onOpen: _openPage,
+      ),
+    };
     return Scaffold(
       appBar: AppBar(
         title: const Brand(),
@@ -465,6 +614,9 @@ class _ControlCenterState extends State<_ControlCenter> {
                   owner: widget.owner,
                   mode: widget.mode,
                   onTheme: widget.onTheme,
+                  defaultPage: defaultPage,
+                  cardsEnabled: cardsEnabled,
+                  onDefaultPage: _setDefaultPage,
                   appLock: widget.appLock,
                   onLockEnabled: widget.onLockEnabled,
                   onSessionEnded: widget.onSessionEnded,
@@ -476,10 +628,18 @@ class _ControlCenterState extends State<_ControlCenter> {
           const SizedBox(width: 6),
         ],
       ),
-      body: SafeArea(top: false, bottom: false, child: screens[tab]),
+      body: SafeArea(top: false, bottom: false, child: screen),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (value) => setState(() => tab = value),
+        selectedIndex: CompanionPage.bottomIndex(page),
+        onDestinationSelected: (value) => _openPage(
+          const [
+            CompanionPage.overview,
+            CompanionPage.activity,
+            CompanionPage.accounts,
+            CompanionPage.plan,
+            CompanionPage.more,
+          ][value],
+        ),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.space_dashboard_outlined),
@@ -499,8 +659,9 @@ class _ControlCenterState extends State<_ControlCenter> {
             label: 'Plan',
           ),
           NavigationDestination(
-            icon: Icon(Icons.auto_graph_outlined),
-            label: 'Insights',
+            icon: Icon(Icons.more_horiz),
+            selectedIcon: Icon(Icons.more_horiz),
+            label: 'More',
           ),
         ],
       ),
@@ -514,6 +675,9 @@ class _SettingsRoute extends StatefulWidget {
     required this.owner,
     required this.mode,
     required this.onTheme,
+    required this.defaultPage,
+    required this.cardsEnabled,
+    required this.onDefaultPage,
     required this.appLock,
     required this.onLockEnabled,
     required this.onSessionEnded,
@@ -522,6 +686,9 @@ class _SettingsRoute extends StatefulWidget {
   final HouseholdIdentity owner;
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onTheme;
+  final String defaultPage;
+  final bool cardsEnabled;
+  final ValueChanged<String> onDefaultPage;
   final AppLock appLock;
   final Future<void> Function(bool) onLockEnabled;
   final ValueChanged<bool> onSessionEnded;
@@ -532,6 +699,7 @@ class _SettingsRoute extends StatefulWidget {
 
 class _SettingsRouteState extends State<_SettingsRoute> {
   late ThemeMode mode = widget.mode;
+  late String defaultPage = widget.defaultPage;
 
   @override
   Widget build(BuildContext context) => CompanionSettings(
@@ -541,6 +709,12 @@ class _SettingsRouteState extends State<_SettingsRoute> {
     onLockEnabled: widget.onLockEnabled,
     mode: mode,
     onSessionEnded: widget.onSessionEnded,
+    defaultPage: defaultPage,
+    cardsEnabled: widget.cardsEnabled,
+    onDefaultPage: (value) {
+      setState(() => defaultPage = value);
+      widget.onDefaultPage(value);
+    },
     onTheme: (value) {
       setState(() => mode = value);
       widget.onTheme(value);

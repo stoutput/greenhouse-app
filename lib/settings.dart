@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_lock.dart';
 import 'ambient_lighting.dart';
+import 'companion_navigation.dart';
 import 'finance_widgets.dart';
 import 'greenhouse_client.dart';
 import 'greenhouse_theme.dart';
@@ -15,6 +16,9 @@ class CompanionSettings extends StatefulWidget {
     required this.appLock,
     required this.onLockEnabled,
     required this.onSessionEnded,
+    required this.defaultPage,
+    required this.cardsEnabled,
+    required this.onDefaultPage,
     super.key,
   });
   final AppLock appLock;
@@ -24,6 +28,9 @@ class CompanionSettings extends StatefulWidget {
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onTheme;
   final ValueChanged<bool> onSessionEnded;
+  final String defaultPage;
+  final bool cardsEnabled;
+  final ValueChanged<String> onDefaultPage;
 
   @override
   State<CompanionSettings> createState() => _CompanionSettingsState();
@@ -125,6 +132,23 @@ class _CompanionSettingsState extends State<CompanionSettings> {
             value: lighting.enabled,
             onChanged: lighting.onChanged,
           ),
+        const SectionTitle('Navigation'),
+        DropdownButtonFormField<String>(
+          initialValue: CompanionPage.resolveDefault(
+            widget.defaultPage,
+            cardsEnabled: widget.cardsEnabled,
+          ),
+          decoration: const InputDecoration(labelText: 'Default page'),
+          items: [
+            for (final (value, title) in CompanionPage.defaultOptions(
+              cardsEnabled: widget.cardsEnabled,
+            ))
+              DropdownMenuItem(value: value, child: Text(title)),
+          ],
+          onChanged: (value) {
+            if (value != null) widget.onDefaultPage(value);
+          },
+        ),
         const SectionTitle('This device'),
         Panel(
           padding: EdgeInsets.zero,

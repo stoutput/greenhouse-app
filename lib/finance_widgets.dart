@@ -34,6 +34,21 @@ String money(Object? value) {
   return '${amount.isNegative ? '-' : ''}\$$formatted.${digits.substring(digits.length - 2)}';
 }
 
+/// Formats an account's own balance, keeping its reported currency visible.
+String moneyWithCurrency(Object? value) {
+  final amount = minor(value);
+  if (amount == null) return '—';
+  final currency = label(object(value)['currency'], 'USD');
+  if (currency == 'USD') return money(value);
+  final digits = amount.abs().toString().padLeft(3, '0');
+  final whole = digits.substring(0, digits.length - 2);
+  final formatted = whole.replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (_) => ',',
+  );
+  return '${amount.isNegative ? '-' : ''}$currency $formatted.${digits.substring(digits.length - 2)}';
+}
+
 String words(Object? value) => label(value).replaceAll(RegExp('[-_]'), ' ');
 
 class Metric extends StatelessWidget {
@@ -223,5 +238,110 @@ class _BalancePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BalancePainter oldDelegate) =>
+      oldDelegate.points != points || oldDelegate.color != color;
+}
+
+/// One dated observation. A null value marks an unknown day and breaks the line.
+class TrendPoint {
+  const TrendPoint(this.date, this.value);
+  final DateTime date;
+  final double? value;
+}
+
+/// A compact dated trend that never draws across an unknown observation.
+class TrendChart extends StatelessWidget {
+  const TrendChart(
+    this.points, {
+    required this.color,
+    this.label,
+    this.height = 32,
+    super.key,
+  });
+  final List<TrendPoint> points;
+  final Color color;
+  final String? label;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    image: true,
+    label: label,
+    child: ExcludeSemantics(
+      child: CustomPaint(
+        size: Size(double.infinity, height),
+        painter: _TrendPainter(points, color),
+      ),
+    ),
+  );
+}
+
+class _TrendPainter extends CustomPainter {
+  const _TrendPainter(this.points, this.color);
+  final List<TrendPoint> points;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty || size.isEmpty) return;
+    final known = points.where((point) => point.value != null).toList();
+    if (known.isEmpty) return;
+    final low = known.map((point) => point.value!).reduce(math.min);
+    final high = known.map((point) => point.value!).reduce(math.max);
+    final spread = high - low;
+    final first = points.first.date;
+    final last = points.last.date;
+    final span = last.difference(first).inSeconds;
+
+    double xFor(DateTime date) => span <= 0
+        ? size.width / 2
+        : 3 + date.difference(first).inSeconds / span * (size.width - 6);
+    double yFor(double value) => spread == 0
+        ? size.height / 2
+        : size.height - 6 - (value - low) / spread * (size.height - 12);
+
+    final line = Path();
+    var drawing = false;
+    for (final point in points) {
+      final value = point.value;
+      if (value == null) {
+        drawing = false;
+        continue;
+      }
+      final offset = Offset(xFor(point.date), yFor(value));
+      if (drawing) {
+        line.lineTo(offset.dx, offset.dy);
+      } else {
+        line.moveTo(offset.dx, offset.dy);
+      }
+      drawing = true;
+    }
+    canvas.drawPath(
+      line,
+      Paint()
+        ..color = color
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // A lone known day has no slope; show a dot instead of inventing a line.
+    for (var i = 0; i < points.length; i++) {
+      final value = points[i].value;
+      if (value == null) continue;
+      final isolated =
+          (i == 0 || points[i - 1].value == null) &&
+          (i == points.length - 1 || points[i + 1].value == null);
+      if (!isolated) continue;
+      canvas.drawCircle(
+        Offset(xFor(points[i].date), yFor(value)),
+        2.8,
+        Paint()..color = color,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_TrendPainter oldDelegate) =>
       oldDelegate.points != points || oldDelegate.color != color;
 }

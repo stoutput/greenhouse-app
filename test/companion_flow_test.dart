@@ -99,8 +99,6 @@ void main() {
     await tester.enterText(find.byType(TextField).last, '123456');
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Not now'));
-    await tester.pumpAndSettle();
 
     expect(find.text('Your financial picture'), findsOneWidget);
     await tester.tap(find.text('Activity').last);
@@ -171,9 +169,9 @@ void main() {
     await tester.enterText(find.byType(TextField).last, '123456');
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
-    expect(find.text('Enable biometrics?'), findsOneWidget);
-    await tester.tap(find.text('Not now'));
-    await tester.pumpAndSettle();
+    expect(client.hasBiometricSession, isTrue);
+    expect(find.text('Enable biometrics?'), findsNothing);
+
     expect(find.text('Your financial picture'), findsOneWidget);
     await tester.tap(find.text('More').last);
     await tester.pumpAndSettle();
@@ -186,15 +184,14 @@ void main() {
     await tester.pump();
     expect(
       find.byWidgetPredicate(
-        (widget) =>
-            widget is ColoredBox && widget.color == const Color(0xff101a18),
+        (widget) => widget is ColoredBox && widget.color == Colors.black,
       ),
       findsOneWidget,
     );
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
-    expect(find.text('GreenHouse is locked'), findsOneWidget);
+    expect(find.text('GreenHouse is locked'), findsNothing);
     await tester.enterText(find.byType(TextField).last, '123456');
     await tester.tap(find.text('Unlock'));
     await tester.pumpAndSettle();
@@ -276,6 +273,14 @@ class _FixtureClient extends GreenhouseClient {
   final requests = <String>[];
   Uri? selected;
   bool didUnlink = false;
+  bool savedBiometrics = false;
+  @override
+  bool get hasBiometricSession => savedBiometrics;
+  @override
+  Future<bool> rememberWithBiometrics() async => savedBiometrics = true;
+  @override
+  Future<bool> checkBiometricEnrollment({required bool lockEnabled}) async =>
+      false;
   HouseholdIdentity? selectedIdentity;
 
   @override
@@ -328,6 +333,7 @@ class _FixtureClient extends GreenhouseClient {
   @override
   Future<bool> disconnect() async {
     didUnlink = true;
+    savedBiometrics = false;
     selected = null;
     selectedIdentity = null;
     return true;
@@ -342,10 +348,8 @@ class _FixtureClient extends GreenhouseClient {
   }) async {
     requests.add(path);
     if (path == '/cards/navigation') {
-      return navigationResponse?.future ?? {
-        'enabled': false,
-        'navigationPage': null,
-      };
+      return navigationResponse?.future ??
+          {'enabled': false, 'navigationPage': null};
     }
     if (path == '/cards') {
       return {

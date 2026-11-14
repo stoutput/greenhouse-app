@@ -38,7 +38,9 @@ class _GreenHouseAppState extends State<GreenHouseApp>
   bool locked = false;
   bool setupPin = false;
   bool setupRequiresAuthentication = false;
-  bool offerBiometrics = false;
+  bool biometricSetupFailed = false;
+  bool checkingEnrollment = false;
+  bool resumingSession = false;
   bool checkingBiometrics = false;
   bool wasBackgrounded = false;
   bool foreground = true;
@@ -106,8 +108,9 @@ class _GreenHouseAppState extends State<GreenHouseApp>
       lightingEnabled = true;
       locked = false;
       setupPin = false;
-      offerBiometrics = false;
+      biometricSetupFailed = false;
       checkingBiometrics = false;
+      checkingEnrollment = false;
       entryRevision++;
     });
   }
@@ -122,9 +125,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
     }
     if (state == AppLifecycleState.resumed) {
       foreground = true;
-      if (owner != null && (!appLock.enabled || !locked)) {
-        unawaited(refreshIdentity());
-      }
+      if (owner != null) unawaited(resumeSession());
     }
     if ((state == AppLifecycleState.hidden ||
             state == AppLifecycleState.paused) &&
@@ -147,10 +148,6 @@ class _GreenHouseAppState extends State<GreenHouseApp>
   Future<void> signedIn(HouseholdIdentity value) async {
     final scope = value.preferenceScope(client.origin);
     final appearanceKey = value.preferenceKey('appearance', client.origin);
-    final biometricOfferKey = value.preferenceKey(
-      'biometric_offer_shown',
-      client.origin,
-    );
     await appLock.useIdentity(scope);
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
@@ -169,31 +166,75 @@ class _GreenHouseAppState extends State<GreenHouseApp>
           true;
       setupPin = appLock.enabled && !appLock.hasPin;
       setupRequiresAuthentication = !foreground;
-      offerBiometrics = false;
-      checkingBiometrics = !client.hasBiometricSession;
+      biometricSetupFailed = false;
+      checkingBiometrics = false;
       locked = setupPin || (appLock.enabled && !foreground);
     });
-    if (!checkingBiometrics) return;
+    await enableBiometrics();
+  }
+
+  Future<void> enableBiometrics() async {
+    final identity = owner;
+    if (identity == null || checkingBiometrics || client.hasBiometricSession) {
+      return;
+    }
+    setState(() {
+      checkingBiometrics = true;
+      biometricSetupFailed = false;
+    });
     try {
-      final shown = prefs.getBool(biometricOfferKey) == true;
-      final supported = !shown && await client.canUseBiometrics();
-      if (!mounted || owner != value) return;
-      setState(() {
-        checkingBiometrics = false;
-        offerBiometrics = supported;
-      });
+      final supported = await client.canUseBiometrics();
+      if (!mounted || owner != identity) return;
+      if (await enforceBiometricEnrollment()) return;
+      final saved = !supported || await client.rememberWithBiometrics();
+      if (saved && await enforceBiometricEnrollment()) return;
+      if (mounted && owner == identity) {
+        setState(() => biometricSetupFailed = !saved);
+      }
     } catch (_) {
-      if (mounted && owner == value) setState(() => checkingBiometrics = false);
+      if (mounted && owner == identity) {
+        setState(() => biometricSetupFailed = true);
+      }
+    } finally {
+      if (mounted && owner == identity) {
+        setState(() => checkingBiometrics = false);
+      }
     }
   }
 
-  void finishBiometricOffer() {
-    setState(() => offerBiometrics = false);
-    final key = owner?.preferenceKey('biometric_offer_shown', client.origin);
-    if (key == null) return;
-    unawaited(
-      SharedPreferences.getInstance().then((prefs) => prefs.setBool(key, true)),
+  Future<bool> enforceBiometricEnrollment() async {
+    final invalidated = await client.checkBiometricEnrollment(
+      lockEnabled: appLock.enabled,
     );
+    if (invalidated && mounted && !client.isSignedIn) {
+      endSession();
+      notice('Biometrics changed. Sign in with your password.');
+    }
+    return invalidated;
+  }
+
+  Future<void> resumeSession() async {
+    if (owner == null || resumingSession || checkingBiometrics) return;
+    resumingSession = true;
+    setState(() => checkingEnrollment = true);
+    try {
+      if (await enforceBiometricEnrollment()) return;
+      if (!mounted || owner == null) return;
+      if (!locked) {
+        await refreshIdentity();
+        if (mounted && owner != null) await enableBiometrics();
+      }
+    } catch (_) {
+      // Never expose a protected session when its enrollment cannot be checked.
+      await client.signOut();
+      if (mounted) {
+        endSession();
+        notice('Could not verify device security. Sign in with your password.');
+      }
+    } finally {
+      resumingSession = false;
+      if (mounted) setState(() => checkingEnrollment = false);
+    }
   }
 
   Future<void> setLockEnabled(bool enabled) async {
@@ -305,13 +346,22 @@ class _GreenHouseAppState extends State<GreenHouseApp>
                     if (child != null)
                       ExcludeSemantics(
                         excluding:
-                            locked || offerBiometrics || checkingBiometrics,
+                            locked ||
+                            biometricSetupFailed ||
+                            checkingBiometrics ||
+                            checkingEnrollment,
                         child: ExcludeFocus(
                           excluding:
-                              locked || offerBiometrics || checkingBiometrics,
+                              locked ||
+                              biometricSetupFailed ||
+                              checkingBiometrics ||
+                              checkingEnrollment,
                           child: IgnorePointer(
                             ignoring:
-                                locked || offerBiometrics || checkingBiometrics,
+                                locked ||
+                                biometricSetupFailed ||
+                                checkingBiometrics ||
+                                checkingEnrollment,
                             child: child,
                           ),
                         ),
@@ -319,8 +369,9 @@ class _GreenHouseAppState extends State<GreenHouseApp>
                     if (owner != null &&
                         lightingEnabled &&
                         !locked &&
-                        !offerBiometrics &&
+                        !biometricSetupFailed &&
                         !checkingBiometrics &&
+                        !checkingEnrollment &&
                         !privacyCover)
                       const Positioned.fill(child: AmbientLighting()),
                     if (owner != null && locked)
@@ -341,6 +392,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
                                     locked = false;
                                     setupPin = false;
                                   });
+                                  unawaited(enableBiometrics());
                                 }
                               },
                               onSignOut: () async {
@@ -354,22 +406,18 @@ class _GreenHouseAppState extends State<GreenHouseApp>
                           ),
                         ],
                       )
-                    else if (owner != null && checkingBiometrics)
-                      const Scaffold(
-                        body: Center(child: CircularProgressIndicator()),
-                      )
-                    else if (owner != null && offerBiometrics)
-                      _BiometricOffer(
-                        client: client,
-                        onDone: finishBiometricOffer,
-                      ),
+                    else if (owner != null &&
+                        (checkingBiometrics || checkingEnrollment))
+                      const AuthenticationScreen()
+                    else if (owner != null && biometricSetupFailed)
+                      AuthenticationScreen(onUnlock: enableBiometrics),
                   ],
                 ),
               ),
             ),
           ),
           if (privacyCover)
-            const Positioned.fill(child: ColoredBox(color: Color(0xff101a18))),
+            const Positioned.fill(child: ColoredBox(color: Colors.black)),
         ],
       ),
     ),
@@ -491,7 +539,8 @@ class _ControlCenterState extends State<_ControlCenter>
     }
     if (!mounted) return;
     final navigationPage = object(discovery?['navigationPage']);
-    final available = discovery?['enabled'] == true && navigationPage.isNotEmpty;
+    final available =
+        discovery?['enabled'] == true && navigationPage.isNotEmpty;
     setState(() {
       cardsEnabled = available;
       cardsTitle = label(navigationPage['title'], 'Cards');
@@ -518,7 +567,8 @@ class _ControlCenterState extends State<_ControlCenter>
     }
     if (!mounted) return;
     final navigationPage = object(discovery?['navigationPage']);
-    final available = discovery?['enabled'] == true && navigationPage.isNotEmpty;
+    final available =
+        discovery?['enabled'] == true && navigationPage.isNotEmpty;
     setState(() {
       cardsEnabled = available;
       cardsTitle = label(navigationPage['title'], 'Cards');
@@ -798,74 +848,6 @@ class _NotificationsState extends State<_Notifications> {
             ],
           ];
         },
-      ),
-    ),
-  );
-}
-
-class _BiometricOffer extends StatefulWidget {
-  const _BiometricOffer({required this.client, required this.onDone});
-  final GreenhouseClient client;
-  final VoidCallback onDone;
-  @override
-  State<_BiometricOffer> createState() => _BiometricOfferState();
-}
-
-class _BiometricOfferState extends State<_BiometricOffer> {
-  bool busy = false;
-  String? error;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Enable biometrics?',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Use your device biometrics to sign in and unlock GreenHouse more quickly.',
-                ),
-                if (error != null) Text(error!),
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: busy
-                      ? null
-                      : () async {
-                          setState(() {
-                            busy = true;
-                            error = null;
-                          });
-                          final saved = await widget.client
-                              .rememberWithBiometrics();
-                          if (!mounted) return;
-                          if (saved) {
-                            widget.onDone();
-                          } else {
-                            setState(() {
-                              busy = false;
-                              error = 'Biometrics could not be enabled. You can try again in Settings.';
-                            });
-                          }
-                        },
-                  child: const Text('Enable biometrics'),
-                ),
-                TextButton(
-                  onPressed: busy ? null : widget.onDone,
-                  child: const Text('Not now'),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     ),
   );

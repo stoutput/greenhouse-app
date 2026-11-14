@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'greenhouse_client.dart';
+import 'app_lock.dart';
 import 'greenhouse_theme.dart';
 import 'login_challenge.dart';
 
@@ -27,6 +28,8 @@ class _EntryScreenState extends State<EntryScreen> {
   bool searched = false;
   bool busy = false;
   bool hidden = true;
+  bool unlocking = false;
+  bool biometricRetry = false;
   String? error;
 
   @override
@@ -38,13 +41,28 @@ class _EntryScreenState extends State<EntryScreen> {
   }
 
   Future<void> unlock() => run(() async {
-    final identity = await widget.client.unlock();
-    if (identity != null && mounted) {
-      widget.onSignedIn(identity);
-    } else if (mounted && !widget.client.hasBiometricSession) {
-      setState(
-        () => error = 'Your saved session expired. Sign in with your password.',
-      );
+    setState(() {
+      unlocking = true;
+      biometricRetry = false;
+    });
+    var succeeded = false;
+    try {
+      final identity = await widget.client.unlock();
+      if (!mounted) return;
+      if (identity != null) {
+        succeeded = true;
+        widget.onSignedIn(identity);
+      } else {
+        biometricRetry = widget.client.hasBiometricSession;
+        if (!biometricRetry) {
+          error = 'Your saved session expired or device security changed. Sign in with your password.';
+        }
+      }
+    } catch (_) {
+      biometricRetry = widget.client.hasBiometricSession;
+      rethrow;
+    } finally {
+      if (mounted && !succeeded) setState(() => unlocking = false);
     }
   });
 
@@ -94,6 +112,9 @@ class _EntryScreenState extends State<EntryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (unlocking || biometricRetry) {
+      return AuthenticationScreen(onUnlock: unlocking ? null : unlock);
+    }
     final theme = Theme.of(context);
     final origin = widget.client.origin;
     final connecting = origin == null;

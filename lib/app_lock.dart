@@ -4,10 +4,12 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'greenhouse_client.dart';
+import 'greenhouse_theme.dart';
 
 /// The PIN protects only the current in-memory session, never the saved token.
 class AppLock {
@@ -193,6 +195,12 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   }
 
   Future<void> complete(int attempt) async {
+    if (await widget.client.checkBiometricEnrollment(
+      lockEnabled: widget.lock.enabled,
+    )) {
+      if (mounted) await widget.onSignOut();
+      return;
+    }
     await widget.client.validateSession();
     if (mounted && foreground && attempt == generation) widget.onUnlocked();
   }
@@ -207,6 +215,12 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       error = null;
     });
     try {
+      if (await widget.client.checkBiometricEnrollment(
+        lockEnabled: widget.lock.enabled,
+      )) {
+        if (mounted) await widget.onSignOut();
+        return;
+      }
       final supported = await widget.client.hasDeviceLock();
       if (!mounted || !foreground || attempt != generation) return;
       deviceLock = supported;
@@ -328,80 +342,110 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: ListView(
-            shrinkWrap: true,
-            padding: const EdgeInsets.all(24),
-            children: [
-              Text(
-                settingPin && !deviceLock
-                    ? (first == null ? 'Set an unlock PIN' : 'Confirm your PIN')
-                    : 'GreenHouse is locked',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                checkingMethod
-                    ? 'Checking device security.'
-                    : deviceLock
-                    ? 'Unlock with your device screen lock.'
-                    : settingPin
-                    ? 'Use this PIN to unlock your current session when you return to the app.'
-                    : 'Enter your PIN to return to your session.',
-              ),
-              const SizedBox(height: 20),
-              if (!checkingMethod && !deviceLock && !methodError)
-                TextField(
-                  controller: pin,
-                  enabled: !busy,
-                  obscureText: true,
-                  keyboardType: TextInputType.number,
-                  maxLength: 12,
-                  onSubmitted: (_) => submit(),
-                  decoration: const InputDecoration(labelText: 'Unlock PIN'),
-                ),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+  Widget build(BuildContext context) {
+    if (checkingMethod || (busy && deviceLock)) {
+      return const AuthenticationScreen();
+    }
+    if (deviceLock || methodError) {
+      return AuthenticationScreen(onUnlock: busy ? null : checkMethod);
+    }
+    return Theme(
+      data: greenhouseTheme(Brightness.dark),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.all(24),
+                children: [
+                  if (settingPin)
+                    Text(
+                      first == null ? 'Set an unlock PIN' : 'Confirm your PIN',
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(color: Colors.white),
+                    )
+                  else
+                    SvgPicture.asset(
+                      'assets/greenhouse-mark.svg',
+                      height: 80,
+                      semanticsLabel: 'GreenHouse',
                     ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: pin,
+                    enabled: !busy,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    maxLength: 12,
+                    onSubmitted: (_) => submit(),
+                    decoration: const InputDecoration(labelText: 'Unlock PIN'),
                   ),
-                ),
-              if (!checkingMethod && deviceLock && !methodError)
-                FilledButton(
-                  onPressed: busy ? null : checkMethod,
-                  child: const Text('Use device screen lock'),
-                )
-              else if (!checkingMethod && methodError)
-                FilledButton(
-                  onPressed: busy ? null : checkMethod,
-                  child: const Text('Retry'),
-                )
-              else if (!checkingMethod)
-                FilledButton(
-                  onPressed: busy ? null : submit,
-                  child: Text(settingPin ? 'Continue' : 'Unlock'),
-                ),
-              TextButton(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        generation++;
-                        await widget.onSignOut();
-                      },
-                child: const Text('Sign out'),
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        error!,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  FilledButton(
+                    onPressed: busy ? null : submit,
+                    child: Text(settingPin ? 'Continue' : 'Unlock'),
+                  ),
+                  TextButton(
+                    onPressed: busy
+                        ? null
+                        : () async {
+                            generation++;
+                            await widget.onSignOut();
+                          },
+                    child: const Text('Sign out'),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Empty while the OS authenticates; a failed attempt exposes only a retry.
+class AuthenticationScreen extends StatelessWidget {
+  const AuthenticationScreen({super.key, this.onUnlock});
+  final VoidCallback? onUnlock;
+
+  @override
+  Widget build(BuildContext context) => Theme(
+    data: greenhouseTheme(Brightness.dark),
+    child: Scaffold(
+      backgroundColor: Colors.black,
+      body: onUnlock == null
+          ? null
+          : SafeArea(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SvgPicture.asset(
+                      'assets/greenhouse-mark.svg',
+                      height: 80,
+                      width: 80,
+                      semanticsLabel: 'GreenHouse',
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton(
+                      onPressed: onUnlock,
+                      child: const Text('Unlock'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     ),
   );
 }

@@ -1,6 +1,7 @@
+import 'package:flutter/services.dart';
+
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('app.greenhouse/biometric_enrollment'),
+          (call) async => call.method == 'hasChanged' ? false : null,
+        );
+  });
 
   test('identity parsing requires household fields and fails closed', () {
     expect(HouseholdIdentity.fromJson({'email': 'a@example.test'}), isNull);

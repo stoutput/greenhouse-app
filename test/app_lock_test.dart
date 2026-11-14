@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:greenhouse/app_lock.dart';
 import 'package:greenhouse/greenhouse_client.dart';
@@ -42,6 +43,77 @@ void main() {
     client.dispose();
   });
 
+  testWidgets(
+    'reauthentication stays black until failure, then offers logo and unlock retry',
+    (tester) async {
+      final pending = Completer<bool>();
+      final client = _Client()
+        ..deviceSupported = true
+        ..pendingAuthentication = pending;
+      var revealed = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LockScreen(
+            lock: AppLock(),
+            client: client,
+            setup: false,
+            onUnlocked: () => revealed = true,
+            onSignOut: () async {},
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(client.localAttempts, 1);
+      expect(
+        tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+        Colors.black,
+      );
+      expect(find.byType(SvgPicture), findsNothing);
+      expect(find.byType(Text), findsNothing);
+      pending.complete(false);
+      await tester.pumpAndSettle();
+      expect(find.byType(SvgPicture), findsOneWidget);
+      expect(find.text('Unlock'), findsOneWidget);
+      expect(find.byType(Text), findsOneWidget);
+      expect(revealed, isFalse);
+      client.pendingAuthentication = null;
+      client.localSuccess = true;
+      await tester.tap(find.text('Unlock'));
+      await tester.pumpAndSettle();
+      expect(client.localAttempts, 2);
+      expect(revealed, isTrue);
+      client.dispose();
+    },
+  );
+
+  testWidgets(
+    'enrollment changes sign out before device or PIN authentication',
+    (tester) async {
+      final client = _Client()
+        ..deviceSupported = true
+        ..enrollmentChanged = true;
+      var signedOut = false;
+      var revealed = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LockScreen(
+            lock: AppLock(),
+            client: client,
+            setup: false,
+            onUnlocked: () => revealed = true,
+            onSignOut: () async => signedOut = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(signedOut, isTrue);
+      expect(revealed, isFalse);
+      expect(client.localAttempts, 0);
+      client.dispose();
+    },
+  );
+
   testWidgets('configured device lock does not fall back after cancellation', (
     tester,
   ) async {
@@ -64,10 +136,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(client.localAttempts, 1);
     expect(find.byType(TextField), findsNothing);
-    expect(
-      find.text('Device authentication did not unlock. Try again.'),
-      findsOneWidget,
-    );
+    expect(find.text('Unlock'), findsOneWidget);
     expect(revealed, isFalse);
     client.dispose();
   });
@@ -135,10 +204,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     client.deviceSupported = false;
-    await tester.tap(find.text('Use device screen lock'));
+    await tester.tap(find.text('Unlock'));
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('GreenHouse is locked'), findsOneWidget);
+    expect(find.text('GreenHouse is locked'), findsNothing);
     client.dispose();
   });
 
@@ -233,12 +302,17 @@ void main() {
 }
 
 class _Client extends GreenhouseClient {
+  @override
+  Future<bool> checkBiometricEnrollment({required bool lockEnabled}) async =>
+      enrollmentChanged;
+  bool enrollmentChanged = false;
   int unlocks = 0;
   int localAttempts = 0;
   bool validationFails = false;
   bool deviceSupported = false;
   bool localSuccess = false;
   Completer<void>? pendingValidation;
+  Completer<bool>? pendingAuthentication;
   @override
   Future<bool> hasDeviceLock() async => deviceSupported;
   @override
@@ -259,7 +333,7 @@ class _Client extends GreenhouseClient {
   @override
   Future<bool> authenticateLocally() async {
     localAttempts++;
-    return localSuccess;
+    return pendingAuthentication?.future ?? localSuccess;
   }
 
   @override

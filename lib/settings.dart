@@ -37,7 +37,6 @@ class CompanionSettings extends StatefulWidget {
 }
 
 class _CompanionSettingsState extends State<CompanionSettings> {
-  late final Future<bool> biometricSupport = widget.client.canUseBiometrics();
   bool busy = false;
 
   Future<void> apply(Future<void> Function() action) async {
@@ -166,36 +165,18 @@ class _CompanionSettingsState extends State<CompanionSettings> {
                       ? null
                       : (value) => apply(() => widget.onLockEnabled(value)),
                 ),
-                FutureBuilder<bool>(
-                  future: biometricSupport,
-                  builder: (context, snapshot) {
-                    final enabled = widget.client.hasBiometricSession;
-                    return SwitchListTile(
-                      title: const Text('Biometric unlock'),
-                      subtitle: Text(
-                        snapshot.data == true || enabled
-                            ? 'Unlock a saved session using your device.'
-                            : 'Enroll a biometric in device settings to use this.',
-                      ),
-                      value: enabled,
-                      onChanged: !busy && (enabled || snapshot.data == true)
-                          ? (value) => apply(() async {
-                              if (value) {
-                                final saved = await widget.client
-                                    .rememberWithBiometrics();
-                                if (!saved && context.mounted) {
-                                  showMessage(
-                                    context,
-                                    'Biometric unlock was not enabled.',
-                                  );
-                                }
-                              } else {
-                                await widget.client.forgetBiometrics();
-                              }
-                            })
-                          : null,
-                    );
-                  },
+                ListTile(
+                  title: const Text('Biometric unlock'),
+                  subtitle: Text(
+                    widget.client.hasBiometricSession
+                        ? 'Enabled automatically. Enrollment changes require password sign-in.'
+                        : 'Enroll a supported biometric in device settings to enable this automatically.',
+                  ),
+                  trailing: Icon(
+                    widget.client.hasBiometricSession
+                        ? Icons.fingerprint
+                        : Icons.fingerprint_outlined,
+                  ),
                 ),
                 SwitchListTile(
                   title: const Text('Push notifications'),

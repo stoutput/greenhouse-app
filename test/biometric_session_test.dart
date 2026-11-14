@@ -10,6 +10,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('app.greenhouse/biometric_enrollment'),
+          (call) async => call.method == 'hasChanged' ? false : null,
+        );
+  });
   test('every biometric unlock requests fresh storage authentication, including after success', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);

@@ -38,7 +38,7 @@ as Actions **variables**. Leave them all unset to build without push.
 
 1. Complete owner setup in GreenHouse web. Invited household members accept their invitation and finish account setup through the web link before signing in here. Use a server build that exposes `/api/v1/mobile/info` and an HTTPS address with a certificate trusted by the phone.
 2. At the app’s setup screen, search the LAN or enter the HTTPS origin. LAN search uses the `_greenhouse._tcp` DNS-SD service with an `origin` TXT record.
-3. Sign in with your existing GreenHouse credentials. The app shows your household role in Settings. Owners and admins can make shared financial changes; gardeners can view household finances and manage personal device settings. Household invitations and role management remain in GreenHouse web. Use your device screen lock, or set an unlock PIN if your device has none, and optionally enable biometrics for sign-in. You can change these options in app Settings.
+3. Sign in with your existing GreenHouse credentials. The app shows your household role in Settings. Owners and admins can make shared financial changes; gardeners can view household finances and manage personal device settings. Household invitations and role management remain in GreenHouse web. Use your device screen lock, or set an unlock PIN if your device has none, and authenticate once to save biometric unlock automatically when supported biometrics are enrolled. The app-lock setting remains available in Settings.
 
 When the server enables Cloudflare Turnstile, password sign-in opens an embedded verification screen before submitting your credentials. The screen loads from your selected server and uses its existing widget configuration; the app needs no Turnstile keys or build settings. Register the hostname used by the app on the server's Turnstile widget and in `TURNSTILE_HOSTNAMES`. This requires a server version with mobile Turnstile support. Biometric unlock of an existing session does not repeat the challenge.
 
@@ -46,7 +46,9 @@ The app connects to the server you select. Household identity and permissions co
 
 For a reverse-proxy installation, set the backend’s `GREENHOUSE_PUBLIC_ORIGIN` and `GREENHOUSE_MOBILE_TRUSTED_PROXIES` to the public HTTPS origin and the exact immediate proxy IPs. The proxy must overwrite `X-Forwarded-Proto` with `https` for secure requests, and the backend port must be reachable only through the intended proxy. See the GreenHouse deployment guide for DNS-SD publishing with Docker.
 
-Each **Unlock with biometrics** attempt requires fresh biometric authentication, including after a successful unlock earlier in the same app session.
+Each biometric unlock requires fresh authentication, including after a successful unlock earlier in the same app session. Re-authentication shows a black screen; a failed or cancelled attempt shows only the GreenHouse logo and an **Unlock** button to retry. Phones without a device screen lock retain the PIN fallback.
+
+GreenHouse checks the OS biometric enrollment state before restoring a saved session and when returning to the app. An enrollment change clears saved biometric access. It also signs out an active session if it was restored with biometrics or **Lock GreenHouse when navigating away** is enabled. A password-authenticated session with app locking disabled can continue. After upgrading from a version without enrollment checks, sign in once with your password to establish the enrollment baseline.
 
 Settings → **Unlink device** revokes the device session when the instance is reachable, clears the saved connection and returns to setup. If the app cannot confirm remote revocation, use **Settings → Known devices** on the web to remove the old registration. **Sign out** retains the selected instance.
 
@@ -69,8 +71,8 @@ iOS push also requires an Apple signing and APNs configuration for the iOS targe
 ## Data and security
 
 The app sends your GreenHouse credentials and financial requests to the HTTPS instance you select.
-It stores the selected server address on the device. If you enable biometric unlock, the app
-stores the session token in biometric-protected storage. By default, returning to the app requires your device screen lock or, if none is configured, the GreenHouse unlock PIN, and a valid server session. The PIN protects only an active session;
+It stores the selected server address on the device. When supported biometrics are enrolled, the app
+automatically stores the session token in biometric-protected storage. By default, returning to the app requires your device screen lock or, if none is configured, the GreenHouse unlock PIN, and a valid server session. The PIN protects only an active session;
 a fresh app launch requires biometrics or your account credentials. The app hides its contents in
 the app switcher while this lock is enabled. On Android, this also blocks screenshots while the app is open. Optional push uses Firebase Cloud
 Messaging to deliver a generic notice. The app fetches the alert details directly from GreenHouse.

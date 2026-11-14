@@ -14,6 +14,8 @@ import 'package:local_auth/local_auth.dart';
 import 'package:nsd/nsd.dart' as nsd;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'biometric_enrollment.dart';
+
 typedef Json = Map<String, dynamic>;
 
 /// A greenhouse found on the local network.
@@ -123,9 +125,9 @@ class HouseholdIdentity {
 
 /// Client for a single greenhouse.
 ///
-/// One instance is expected to live for the lifetime of the app. The origin is
-/// the only network state that is persisted; the bearer token lives in memory
-/// unless the user explicitly enables biometric unlock.
+/// One instance is expected to live for the lifetime of the app. The selected
+/// origin is persisted. The bearer token stays in memory and is also saved in
+/// OS biometric-protected storage on phones with enrolled biometrics.
 class GreenhouseClient {
   GreenhouseClient({
     this.onUnauthorized,
@@ -161,6 +163,9 @@ class GreenhouseClient {
   final VoidCallback? onNotification;
 
   final http.Client _http;
+  final _biometricEnrollment = BiometricEnrollment();
+  bool _signedInWithBiometrics = false;
+
   final LocalAuthentication _localAuth = LocalAuthentication();
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
     aOptions: AndroidOptions.biometric(
@@ -209,6 +214,8 @@ class GreenhouseClient {
   bool get isSignedIn => _token != null;
 
   HouseholdIdentity? get identity => _identity;
+
+  bool get signedInWithBiometrics => _signedInWithBiometrics;
 
   HouseholdPermissions get permissions =>
       _identity?.permissions ??
@@ -318,6 +325,7 @@ class GreenhouseClient {
       _originGeneration++;
       _authGeneration++;
       _token = null;
+      _signedInWithBiometrics = false;
       _identity = null;
       _pushEnabled = false;
       _pushToken = null;
@@ -415,7 +423,20 @@ class GreenhouseClient {
       throw const GreenhouseException('Sign in was cancelled.');
     }
 
+    try {
+      await _biometricEnrollment.reset(enrolled: await canUseBiometrics());
+    } catch (_) {
+      unawaited(_revokeSession(origin, token));
+      throw const GreenhouseException(
+        'Could not check device security. Try signing in again.',
+      );
+    }
+    if (generation != _authGeneration || _origin != origin) {
+      unawaited(_revokeSession(origin, token));
+      throw const GreenhouseException('Sign in was cancelled.');
+    }
     _authGeneration++;
+    _signedInWithBiometrics = false;
     _token = token;
     _identity = identity;
     final sessionGeneration = _authGeneration;
@@ -435,6 +456,7 @@ class GreenhouseClient {
     final origin = _origin;
     if (origin == null) return null;
 
+    if (await checkBiometricEnrollment(lockEnabled: true)) return null;
     final generation = _authGeneration;
     final originGeneration = _originGeneration;
     if (!await canUseBiometrics()) return null;
@@ -479,8 +501,11 @@ class GreenhouseClient {
       return null;
     }
 
+    if (await checkBiometricEnrollment(lockEnabled: true)) return null;
+    if (generation != _authGeneration || _origin != origin) return null;
     _authGeneration++;
     _token = saved.token;
+    _signedInWithBiometrics = true;
     _identity = identity;
     _hasBiometricSession = true;
     final sessionGeneration = _authGeneration;
@@ -624,10 +649,24 @@ class GreenhouseClient {
     }
   }
 
-  /// Removes the biometric credential without ending the current session.
-  Future<void> forgetBiometrics() async {
-    _authGeneration++;
+  /// Checks the enrollment-bound platform sentinel before exposing a session.
+  /// Missing baselines (including older app versions) require password sign-in.
+  Future<bool> checkBiometricEnrollment({required bool lockEnabled}) async {
+    final generation = _authGeneration;
+    final enrolled = await canUseBiometrics();
+    final changed = await _biometricEnrollment.hasChanged(enrolled: enrolled);
+    if (generation != _authGeneration) return false;
+    if (!changed) return false;
+    if (lockEnabled || _signedInWithBiometrics || _token == null) {
+      await signOut();
+      return true;
+    }
+    // A password-authenticated session with app locking disabled may continue,
+    // but its old biometric credential must never survive an enrollment change.
     await _clearBiometricCredential();
+    if (generation != _authGeneration) return false;
+    await _biometricEnrollment.reset(enrolled: enrolled);
+    return false;
   }
 
   /// Ends the current session and removes its biometric credential.
@@ -655,6 +694,7 @@ class GreenhouseClient {
       _pushToken = null;
     }
     _token = null;
+    _signedInWithBiometrics = false;
     _identity = null;
     _pushEnabled = false;
 
@@ -1117,6 +1157,7 @@ class GreenhouseClient {
     _authGeneration++;
     _pushGeneration++;
     _token = null;
+    _signedInWithBiometrics = false;
     _identity = null;
     _pushEnabled = false;
     await _clearBiometricCredential();

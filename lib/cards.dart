@@ -62,6 +62,27 @@ List<Json> effectiveCardBenefits(Json card, Json? product) {
   return objects(product?['benefits']);
 }
 
+List<Json> walletRewardCategories({
+  required List<Json> wallet,
+  required List<Json> products,
+  required List<Json> categories,
+}) {
+  final productById = {for (final product in products) product['id']: product};
+  final availableIds = <String>{};
+  for (final card in wallet) {
+    final product = productById[card['productId']];
+    for (final reward in effectiveCardRewards(card, product)) {
+      if (reward['categoryId'] case final String id) availableIds.add(id);
+      if (reward['additionalCategoryIds'] case final List ids) {
+        availableIds.addAll(ids.whereType<String>());
+      }
+    }
+  }
+  return categories
+      .where((category) => availableIds.contains(category['id']))
+      .toList();
+}
+
 List<CardRecommendation> rankCardsForCategory({
   required List<Json> wallet,
   required List<Json> products,
@@ -228,21 +249,26 @@ class _CardsState extends State<Cards> {
   );
 
   List<Widget> _contents(CardsCatalog catalog) {
-    final categories = catalog.categories;
+    final categories = walletRewardCategories(
+      wallet: catalog.wallet,
+      products: catalog.products,
+      categories: catalog.categories,
+    );
+    if (selectedCategoryId != null &&
+        categories.every((category) => category['id'] != selectedCategoryId)) {
+      selectedCategoryId = null;
+    }
     if (selectedCategoryId == null && categories.isNotEmpty) {
       selectedCategoryId = label(categories.first['id'], '');
     }
-    final selectedCard =
-        catalog.wallet
-            .where((card) => card['id'] == selectedCardId)
-            .firstOrNull ??
-        catalog.wallet.firstOrNull;
-    if (selectedCard != null) selectedCardId = label(selectedCard['id'], '');
-    final product = selectedCard == null
+    final selectedCard = selectedCardId == null
         ? null
-        : catalog.products
-              .where((row) => row['id'] == selectedCard['productId'])
+        : catalog.wallet
+              .where((card) => card['id'] == selectedCardId)
               .firstOrNull;
+    if (selectedCardId != null && selectedCard == null) {
+      selectedCardId = null;
+    }
     final category = categories
         .where((row) => row['id'] == selectedCategoryId)
         .firstOrNull;
@@ -270,32 +296,7 @@ class _CardsState extends State<Cards> {
           _showCategoryBenefits(catalog, value);
         },
       ),
-      if (selectedCard != null) ...[
-        const SectionTitle('Selected card'),
-        CardPreview(product: product, walletCard: selectedCard, height: 190),
-        const SizedBox(height: 10),
-        _CardDetails(
-          client: widget.client,
-          card: selectedCard,
-          product: product,
-          products: catalog.products,
-          categories: catalog.categories,
-          onUpdated: _reload,
-          onActivity: () => Navigator.of(context).push<void>(
-            MaterialPageRoute<void>(
-              builder: (_) => Scaffold(
-                appBar: AppBar(title: const Text('Card activity')),
-                body: Activity(
-                  client: widget.client,
-                  initialQuery: {
-                    'accountIds': label(selectedCard['accountId'], ''),
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-      ] else ...[
+      if (catalog.wallet.isEmpty) ...[
         Panel(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -316,18 +317,14 @@ class _CardsState extends State<Cards> {
       if (catalog.wallet.isEmpty)
         const Panel(
           child: Text('Linked credit accounts and manual cards appear here.'),
+        )
+      else
+        _WalletCardStack(
+          cards: catalog.wallet,
+          products: catalog.products,
+          selectedCardId: selectedCardId ?? '',
+          onSelected: (card) => _showCardDetails(catalog, card),
         ),
-      for (final card in catalog.wallet) ...[
-        _WalletCardTile(
-          card: card,
-          product: catalog.products
-              .where((row) => row['id'] == card['productId'])
-              .firstOrNull,
-          selected: card['id'] == selectedCardId,
-          onTap: () => setState(() => selectedCardId = label(card['id'], '')),
-        ),
-        const SizedBox(height: 9),
-      ],
       if (category != null) ...[
         const SectionTitle('Best for this purchase'),
         if (ranked.isEmpty)
@@ -340,19 +337,8 @@ class _CardsState extends State<Cards> {
           _RecommendationTile(
             recommendation: ranked[index],
             category: category,
-            rank: index + 1,
-            onTap: () => setState(
-              () => selectedCardId = label(ranked[index].walletCard['id'], ''),
-            ),
+            onTap: () => _showCardDetails(catalog, ranked[index].walletCard),
           ),
-      ],
-      if (product != null || hasBenefitOverride(selectedCard ?? {})) ...[
-        const SectionTitle('All card perks'),
-        ..._perkWidgets(product, catalog.categories, selectedCard!),
-        if (product != null) ...[
-          const SectionTitle('Verified sources'),
-          ..._sourceWidgets(context, product),
-        ],
       ],
       if (catalog.catalogSource case final source?) ...[
         const SectionTitle('Catalog provenance'),
@@ -369,6 +355,134 @@ class _CardsState extends State<Cards> {
         ),
       ],
     ];
+  }
+
+  Future<void> _showCardDetails(CardsCatalog catalog, Json card) async {
+    final cardId = label(card['id'], '');
+    setState(() => selectedCardId = cardId);
+    var currentCard = card;
+    var currentProduct = catalog.products
+        .where((row) => row['id'] == card['productId'])
+        .firstOrNull;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      enableDrag: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => DraggableScrollableSheet(
+          initialChildSize: .9,
+          minChildSize: .48,
+          maxChildSize: .96,
+          expand: false,
+          builder: (context, scrollController) => LayoutBuilder(
+            builder: (context, constraints) {
+              final width = (constraints.maxWidth - 32)
+                  .clamp(0, 480)
+                  .toDouble();
+              final previewHeight = width / 1.586;
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    child: Column(
+                      children: [
+                        _CardSheetHandle(
+                          onClose: () => Navigator.of(sheetContext).pop(),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: IconButton(
+                            tooltip: 'Close card details',
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      children: [
+                        Center(
+                          child: SizedBox(
+                            width: width,
+                            child: CardPreview(
+                              product: currentProduct,
+                              walletCard: currentCard,
+                              height: previewHeight,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const SectionTitle('Benefits'),
+                        ..._perkWidgets(
+                          currentProduct,
+                          catalog.categories,
+                          currentCard,
+                        ),
+                        const SizedBox(height: 8),
+                        const Eyebrow('Card details'),
+                        const SizedBox(height: 8),
+                        _CardDetails(
+                          client: widget.client,
+                          card: currentCard,
+                          product: currentProduct,
+                          products: catalog.products,
+                          categories: catalog.categories,
+                          onUpdated: () async {
+                            await _reload();
+                            final refreshed = await future;
+                            final updated = refreshed.wallet
+                                .where((item) => item['id'] == cardId)
+                                .firstOrNull;
+                            if (updated == null || !sheetContext.mounted) {
+                              return;
+                            }
+                            setSheetState(() {
+                              currentCard = updated;
+                              currentProduct = refreshed.products
+                                  .where(
+                                    (row) => row['id'] == updated['productId'],
+                                  )
+                                  .firstOrNull;
+                            });
+                          },
+                          onActivity: () => Navigator.of(context).push<void>(
+                            MaterialPageRoute<void>(
+                              builder: (_) => Scaffold(
+                                appBar: AppBar(
+                                  title: const Text('Card activity'),
+                                ),
+                                body: Activity(
+                                  client: widget.client,
+                                  initialQuery: {
+                                    'accountIds': label(
+                                      currentCard['accountId'],
+                                      '',
+                                    ),
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (currentProduct != null) ...[
+                          const SectionTitle('Verified sources'),
+                          ..._sourceWidgets(context, currentProduct!),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _addButton(CardsCatalog catalog) => TextButton.icon(
@@ -648,9 +762,10 @@ class CardPreview extends StatelessWidget {
     final logo = Uri.tryParse(label(fallback['issuerLogoUrl'], ''));
     final useLogo = logo?.scheme == 'https';
     final lightFallback = background.computeLuminance() > .65;
+    final showNumber = height >= 140;
     return Semantics(
       label:
-          '${label(product?['name'], label(walletCard['displayName'], 'Unknown card'))}, ${_maskLabel(walletCard['mask'])}',
+          '${label(product?['name'], label(walletCard['displayName'], 'Unknown card'))}, ${_maskLabel(walletCard['mask'])}${hasBenefitOverride(walletCard) ? ', benefits customized' : ''}',
       child: Container(
         height: height,
         width: double.infinity,
@@ -684,9 +799,13 @@ class CardPreview extends StatelessWidget {
             if (useImage)
               ColoredBox(color: Colors.black.withValues(alpha: .24)),
             Padding(
-              padding: const EdgeInsets.all(17),
+              padding: EdgeInsets.symmetric(
+                horizontal: 17,
+                vertical: showNumber ? 17 : 10,
+              ),
               child: DefaultTextStyle(
-                style: TextStyle(color: useImage ? Colors.white : foreground),
+                style: Theme.of(context).textTheme.bodyMedium!
+                    .copyWith(color: useImage ? Colors.white : foreground),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -720,27 +839,32 @@ class CardPreview extends StatelessWidget {
                                   const SizedBox.shrink(),
                             ),
                           ),
+                        if (hasBenefitOverride(walletCard)) ...[
+                          if (useLogo) const SizedBox(width: 8),
+                          const _CardOverrideMark(),
+                        ],
                       ],
                     ),
-                    const Spacer(),
+                    const SizedBox(height: 3),
                     Text(
-                      maskedCardDigits(
-                        walletCard['mask'],
-                        product?['network'] ?? product?['issuer'],
-                      ),
-                      style: const TextStyle(letterSpacing: 2, fontSize: 18),
+                      label(product?['name'], 'Unknown product'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                    const SizedBox(height: 7),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            label(product?['name'], 'Unknown product'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                    if (showNumber) ...[
+                      const Spacer(),
+                      Text(
+                        maskedCardDigits(
+                          walletCard['mask'],
+                          product?['network'] ?? product?['issuer'],
                         ),
-                        Text(
+                        style: const TextStyle(letterSpacing: 2, fontSize: 18),
+                      ),
+                      const SizedBox(height: 7),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
                           _networkLabel(
                             product?['network'] ?? product?['issuer'],
                           ),
@@ -749,8 +873,8 @@ class CardPreview extends StatelessWidget {
                             letterSpacing: 1.2,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -802,93 +926,177 @@ Color _hexColor(Object? value, Color fallback) {
   return Color(hex.length <= 6 ? 0xff000000 | parsed : parsed);
 }
 
-class _WalletCardTile extends StatelessWidget {
-  const _WalletCardTile({
-    required this.card,
-    required this.product,
-    required this.selected,
-    required this.onTap,
+class _WalletCardStack extends StatelessWidget {
+  const _WalletCardStack({
+    required this.cards,
+    required this.products,
+    required this.selectedCardId,
+    required this.onSelected,
   });
-  final Json card;
-  final Json? product;
-  final bool selected;
-  final VoidCallback onTap;
+
+  final List<Json> cards;
+  final List<Json> products;
+  final String selectedCardId;
+  final ValueChanged<Json> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Semantics(
-      selected: selected,
+    final productsById = {
+      for (final product in products) product['id']: product,
+    };
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardHeight = constraints.maxWidth / 1.586;
+        final step = (72 * MediaQuery.textScalerOf(context).scale(1))
+            .clamp(72, 112)
+            .toDouble();
+        return SizedBox(
+          height: cardHeight + step * (cards.length - 1),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              for (var index = 0; index < cards.length; index++)
+                _stackedCard(
+                  context,
+                  cards[index],
+                  index * step,
+                  cardHeight,
+                  productsById,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _stackedCard(
+    BuildContext context,
+    Json card,
+    double top,
+    double height,
+    Map<Object?, Json> productsById,
+  ) => Positioned(
+    top: top,
+    left: 0,
+    right: 0,
+    child: Semantics(
       button: true,
-      child: Container(
-        decoration: BoxDecoration(
+      selected: card['id'] == selectedCardId,
+      label:
+          '${label(productsById[card['productId']]?['name'], label(card['displayName'], 'Card'))}, ${label(productsById[card['productId']]?['issuer'], 'Unknown issuer')}${hasBenefitOverride(card) ? ', benefits customized' : ''}',
+      hint: 'Open card details',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(22),
+        child: InkWell(
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: selected ? colors.primary : colors.outlineVariant,
-            width: selected ? 2 : 1,
+          onTap: () => onSelected(card),
+          child: CardPreview(
+            product: productsById[card['productId']],
+            walletCard: card,
+            height: height,
           ),
         ),
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(22),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(22),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CardPreview(product: product, walletCard: card, height: 156),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              label(
-                                product?['name'],
-                                label(card['displayName'], 'Unknown card'),
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            Text(
-                              product == null
-                                  ? 'Product not identified'
-                                  : label(product?['issuer']),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          if (hasBenefitOverride(card))
-                            const Tooltip(
-                              message: 'User-overridden benefits',
-                              child: Icon(Icons.edit_note_outlined),
-                            ),
-                          if (selected)
-                            const Eyebrow('Selected')
-                          else
-                            const Icon(Icons.chevron_right),
-                        ],
-                      ),
-                    ],
+      ),
+    ),
+  );
+}
+
+class _CardOverrideMark extends StatelessWidget {
+  const _CardOverrideMark();
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: 'User-overridden benefits',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.surface.withValues(alpha: .88),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.edit_note_outlined, size: 14, color: color.primary),
+            const SizedBox(width: 3),
+            Text(
+              'Edited',
+              style: TextStyle(
+                color: color.primary,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CardSheetHandle extends StatefulWidget {
+  const _CardSheetHandle({required this.onClose});
+
+  final VoidCallback onClose;
+
+  @override
+  State<_CardSheetHandle> createState() => _CardSheetHandleState();
+}
+
+class _CardSheetHandleState extends State<_CardSheetHandle> {
+  double dragDistance = 0;
+  bool closing = false;
+
+  void _close() {
+    if (closing) return;
+    closing = true;
+    widget.onClose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 6, bottom: 2),
+    child: Center(
+      child: Tooltip(
+        message: 'Drag down to close card details',
+        child: Semantics(
+          button: true,
+          label: 'Card details handle',
+          hint: 'Swipe down or tap to return to the wallet',
+          onTap: widget.onClose,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onVerticalDragStart: (_) {
+              if (!closing) dragDistance = 0;
+            },
+            onVerticalDragUpdate: (details) {
+              if (closing) return;
+              dragDistance += details.delta.dy;
+              if (dragDistance > 96) _close();
+            },
+            onTap: _close,
+            child: SizedBox(
+              width: 64,
+              height: 24,
+              child: Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
 }
 
 class _UserOverrideBadge extends StatelessWidget {
@@ -906,11 +1114,15 @@ class _UserOverrideBadge extends StatelessWidget {
           color: Theme.of(context).colorScheme.primary,
         ),
         const SizedBox(width: 4),
-        Text(
-          'User-overridden benefits',
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: Theme.of(context).colorScheme.primary,
-            fontWeight: FontWeight.w700,
+        Flexible(
+          child: Text(
+            'User-overridden benefits',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -1469,12 +1681,10 @@ class _RecommendationTile extends StatelessWidget {
   const _RecommendationTile({
     required this.recommendation,
     required this.category,
-    required this.rank,
     required this.onTap,
   });
   final CardRecommendation recommendation;
   final Json category;
-  final int rank;
   final VoidCallback onTap;
 
   @override
@@ -1482,38 +1692,43 @@ class _RecommendationTile extends StatelessWidget {
     padding: const EdgeInsets.only(bottom: 8),
     child: Panel(
       padding: EdgeInsets.zero,
-      child: ListTile(
-        leading: CircleAvatar(child: Text('$rank')),
-        title: Text(
-          label(
-            recommendation.product?['name'],
-            label(recommendation.walletCard['displayName'], 'Unknown card'),
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              recommendation.reward == null
-                  ? 'No verified ${label(category['label']).toLowerCase()} reward'
-                  : '${rewardRateLabel(recommendation.reward!)} · ${label(category['label'])}${_rewardConditions(recommendation.reward!)}',
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          leading: const Icon(Icons.credit_card_outlined),
+          title: Text(
+            label(
+              recommendation.product?['name'],
+              label(recommendation.walletCard['displayName'], 'Unknown card'),
             ),
-            if (hasBenefitOverride(recommendation.walletCard))
-              const Padding(
-                padding: EdgeInsets.only(top: 3),
-                child: _UserOverrideBadge(),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                recommendation.reward == null
+                    ? 'No verified ${label(category['label']).toLowerCase()} reward'
+                    : '${rewardRateLabel(recommendation.reward!)} · ${label(category['label'])}${_rewardConditions(recommendation.reward!)}',
               ),
-          ],
+              if (hasBenefitOverride(recommendation.walletCard))
+                const Padding(
+                  padding: EdgeInsets.only(top: 3),
+                  child: _UserOverrideBadge(),
+                ),
+            ],
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (hasBenefitOverride(recommendation.walletCard))
+                const Icon(Icons.edit_note_outlined, size: 19),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+          onTap: onTap,
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (hasBenefitOverride(recommendation.walletCard))
-              const Icon(Icons.edit_note_outlined, size: 19),
-            const Icon(Icons.chevron_right),
-          ],
-        ),
-        onTap: onTap,
       ),
     ),
   );
@@ -1540,31 +1755,40 @@ List<Widget> _perkWidgets(
     if (rewards.isEmpty && benefits.isEmpty)
       const Panel(child: Text('No verified perks are listed for this card.')),
     for (final reward in rewards)
-      Panel(
-        child: _PerkText(
-          title:
-              '${rewardRateLabel(reward)} ${label(categoryNames[reward['categoryId']], 'on purchases')}',
-          detail: _rewardConditions(reward).replaceFirst(RegExp(r'^ · '), ''),
-          icon: Icons.stars_outlined,
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Panel(
+          child: _PerkText(
+            title:
+                '${rewardRateLabel(reward)} ${label(categoryNames[reward['categoryId']], 'on purchases')}',
+            detail: _rewardConditions(reward).replaceFirst(RegExp(r'^ · '), ''),
+            icon: Icons.stars_outlined,
+          ),
         ),
       ),
     for (final benefit in benefits)
-      Panel(
-        child: _PerkText(
-          title: label(benefit['title'], 'Card benefit'),
-          detail: label(
-            benefit['description'],
-            'Verified benefit details unavailable.',
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Panel(
+          child: _PerkText(
+            title: label(benefit['title'], 'Card benefit'),
+            detail: label(
+              benefit['description'],
+              'Verified benefit details unavailable.',
+            ),
+            icon: Icons.card_giftcard_outlined,
           ),
-          icon: Icons.card_giftcard_outlined,
         ),
       ),
     if (product != null)
-      Panel(
-        child: _PerkText(
-          title: 'Annual fee',
-          detail: annualFeeDisplay(product['annualFeeCents']),
-          icon: Icons.payments_outlined,
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Panel(
+          child: _PerkText(
+            title: 'Annual fee',
+            detail: annualFeeDisplay(product['annualFeeCents']),
+            icon: Icons.payments_outlined,
+          ),
         ),
       ),
   ];

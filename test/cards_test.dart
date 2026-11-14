@@ -198,6 +198,83 @@ void main() {
     },
   );
 
+  test('purchase categories come only from effective wallet rewards', () {
+    const categories = [
+      {'id': 'all-purchases', 'label': 'All purchases'},
+      {'id': 'groceries', 'label': 'Groceries'},
+      {'id': 'costco-gas', 'label': 'Gas at Costco'},
+      {'id': 'override-only', 'label': 'Custom category'},
+      {'id': 'manual-only', 'label': 'Manual card category'},
+      {'id': 'unrelated', 'label': 'Entertainment'},
+    ];
+    const products = [
+      {
+        'id': 'owned',
+        'name': 'Owned card',
+        'rewards': [
+          {'categoryId': 'groceries', 'rate': 2, 'unit': 'percent'},
+        ],
+      },
+      {
+        'id': 'unowned',
+        'name': 'Unowned card',
+        'rewards': [
+          {'categoryId': 'unrelated', 'rate': 4, 'unit': 'percent'},
+        ],
+      },
+    ];
+    const wallet = [
+      {
+        'productId': 'owned',
+        'benefitOverride': {
+          'rewards': [
+            {
+              'categoryId': 'override-only',
+              'additionalCategoryIds': ['costco-gas'],
+              'rate': 5,
+              'unit': 'percent',
+            },
+          ],
+        },
+      },
+      {
+        'productId': null,
+        'benefitOverride': {
+          'rewards': [
+            {'categoryId': 'manual-only', 'rate': 3, 'unit': 'percent'},
+          ],
+        },
+      },
+    ];
+
+    expect(
+      walletRewardCategories(
+        wallet: wallet,
+        products: products,
+        categories: categories,
+      ).map((category) => category['id']),
+      ['costco-gas', 'override-only', 'manual-only'],
+    );
+    expect(
+      walletRewardCategories(
+        wallet: [
+          ...wallet,
+          {
+            'productId': 'owned',
+            'benefitOverride': {
+              'rewards': [
+                {'categoryId': 'all-purchases', 'rate': 1, 'unit': 'percent'},
+              ],
+            },
+          },
+        ],
+        products: products,
+        categories: categories,
+      ).map((category) => category['id']),
+      contains('all-purchases'),
+    );
+  });
+
   test(
     'masked display fills the network digit groups without revealing a PAN',
     () {
@@ -220,7 +297,7 @@ void main() {
   testWidgets('selecting a category opens the dimmed best-card hero', (
     tester,
   ) async {
-    final client = _CardsClient();
+    final client = _CardsClient(staleAlias: true);
     addTearDown(client.dispose);
     await tester.pumpWidget(
       MaterialApp(
@@ -233,8 +310,9 @@ void main() {
     expect(find.text('Use this card for the best benefits!'), findsNothing);
     await tester.tap(find.byTooltip('Show categories'));
     await tester.pumpAndSettle();
-    expect(find.text('All purchases'), findsOneWidget);
+    expect(find.text('All purchases'), findsNothing);
     expect(find.text('Groceries'), findsOneWidget);
+    expect(find.text('Dining'), findsNothing);
     await tester.enterText(find.byType(TextField), 'grocries');
     await tester.pumpAndSettle();
     expect(find.text('Groceries'), findsOneWidget);
@@ -310,10 +388,89 @@ void main() {
     expect(find.text('Goldman Sachs Bank USA'), findsOneWidget);
   });
 
+  testWidgets(
+    'wallet stack opens selected details and returns by close or drag',
+    (tester) async {
+      tester.view.physicalSize = const Size(392, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final client = _CardsClient(multipleCards: true, withOverride: true);
+      addTearDown(client.dispose);
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigatorKey,
+          home: Scaffold(body: Cards(client: client)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final previews = find.byType(CardPreview);
+      expect(previews, findsNWidgets(3));
+      final firstRect = tester.getRect(previews.at(0));
+      final secondRect = tester.getRect(previews.at(1));
+      final lastRect = tester.getRect(previews.at(2));
+      expect(secondRect.top, greaterThan(firstRect.top));
+      expect(secondRect.top, lessThan(firstRect.bottom));
+      expect(lastRect.top, greaterThan(secondRect.top));
+      expect(lastRect.top, lessThan(secondRect.bottom));
+      expect(lastRect.bottom, greaterThan(secondRect.bottom));
+      await tester.tapAt(Offset(firstRect.center.dx, firstRect.top + 36));
+      await tester.pumpAndSettle();
+      expect(find.text('Trail card'), findsWidgets);
+      await tester.tap(find.byTooltip('Close card details'));
+      await tester.pumpAndSettle();
+
+      await tester.tapAt(Offset(secondRect.center.dx, secondRect.top + 36));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+      expect(find.byType(CardPreview), findsNWidgets(4));
+      expect(
+        tester
+            .state<ScrollableState>(_walletSheetScrollable())
+            .position
+            .maxScrollExtent,
+        greaterThan(0),
+      );
+      expect(find.text('Backup card'), findsOneWidget);
+      expect(find.text('Benefits'), findsOneWidget);
+      expect(find.text('Edited'), findsWidgets);
+      await tester.tap(find.byTooltip('Close card details'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+      expect(find.byType(CardPreview), findsNWidgets(3));
+
+      await tester.tap(find.byType(CardPreview).last);
+      await tester.pumpAndSettle();
+      expect(find.text('Travel backup'), findsOneWidget);
+      final editButton = find.text('Edit card benefits');
+      await tester.scrollUntilVisible(
+        editButton,
+        240,
+        scrollable: _walletSheetScrollable(),
+      );
+      await tester.ensureVisible(editButton);
+      final handle = find.byTooltip('Drag down to close card details');
+      final closeButton = find.byTooltip('Close card details');
+      expect(handle, findsOneWidget);
+      expect(closeButton, findsOneWidget);
+      final listTop = tester.getTopLeft(_walletSheetScrollable()).dy;
+      expect(tester.getRect(handle).bottom, lessThanOrEqualTo(listTop));
+      expect(tester.getRect(closeButton).bottom, lessThanOrEqualTo(listTop));
+      await tester.drag(handle, const Offset(0, 180));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Close card details'), findsNothing);
+      expect(navigatorKey.currentState!.canPop(), isFalse);
+      expect(find.byType(Cards), findsOneWidget);
+    },
+  );
+
   testWidgets('benefit editor requires valid rows and clears stale aliases', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(392, 820);
+    tester.view.physicalSize = const Size(392, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -325,12 +482,15 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openCardDetails(tester);
+    final editButton = find.text('Edit card benefits');
     await tester.scrollUntilVisible(
-      find.text('Edit card benefits').last,
+      editButton,
       240,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: _walletSheetScrollable(),
     );
-    await tester.tap(find.text('Edit card benefits').last);
+    await tester.ensureVisible(editButton);
+    await tester.tap(editButton);
     await tester.pumpAndSettle();
     final categoryFields = find.byWidgetPredicate(
       (widget) =>
@@ -340,7 +500,7 @@ void main() {
     await tester.scrollUntilVisible(
       categoryFields.first,
       240,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: _scrollableFor(categoryFields.first),
     );
     await tester.ensureVisible(categoryFields.first);
     await tester.tap(categoryFields.first);
@@ -385,7 +545,7 @@ void main() {
   });
 
   testWidgets('reset to defaults is visible in card details', (tester) async {
-    tester.view.physicalSize = const Size(392, 820);
+    tester.view.physicalSize = const Size(392, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -397,12 +557,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openCardDetails(tester);
 
     expect(find.text('User-overridden benefits'), findsOneWidget);
+    final resetButton = find.text('Reset to defaults');
     await tester.scrollUntilVisible(
-      find.text('Reset to defaults'),
+      resetButton,
       240,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: _walletSheetScrollable(),
     );
     expect(find.text('Reset to defaults'), findsOneWidget);
     await tester.tap(find.text('Reset to defaults'));
@@ -423,7 +585,7 @@ void main() {
   testWidgets('a manual reward starts blank and cannot be saved incomplete', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(392, 820);
+    tester.view.physicalSize = const Size(392, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -435,19 +597,21 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openCardDetails(tester);
+    final editButton = find.text('Edit card benefits');
     await tester.scrollUntilVisible(
-      find.text('Edit card benefits').last,
+      editButton,
       240,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: _walletSheetScrollable(),
     );
-    await tester.tap(find.text('Edit card benefits').last);
+    await tester.tap(editButton);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Add reward'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('Rate (required)'),
       240,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: _editorScrollable(),
     );
     final rateField = _formFieldForLabel('Rate (required)');
     expect(tester.widget<TextFormField>(rateField).initialValue, '');
@@ -466,7 +630,7 @@ void main() {
     await tester.scrollUntilVisible(
       category.first,
       240,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: _editorScrollable(),
     );
     await tester.tap(category.first);
     await tester.pumpAndSettle();
@@ -490,7 +654,7 @@ void main() {
   testWidgets(
     'linked suggestions need explicit confirmation before rewards appear',
     (tester) async {
-      tester.view.physicalSize = const Size(392, 820);
+      tester.view.physicalSize = const Size(392, 1400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -502,31 +666,35 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await _openCardDetails(tester);
 
       expect(
         find.text('Imported account name: Wells Fargo Active Cash 4521'),
         findsOneWidget,
       );
       expect(find.text('Suggested match: Trail card'), findsOneWidget);
-      expect(find.text('All card perks'), findsNothing);
-      await tester.drag(find.byType(Scrollable).last, const Offset(0, -300));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Confirm card'));
-      await tester.tap(find.text('Confirm card'));
+      expect(find.text('Benefits'), findsOneWidget);
+      final confirmButton = find.text('Confirm card');
+      await tester.scrollUntilVisible(
+        confirmButton,
+        240,
+        scrollable: _walletSheetScrollable(),
+      );
+      await tester.tap(confirmButton);
       await tester.pumpAndSettle();
 
       expect(client.requests, contains('PUT /cards/wallet/wallet-1'));
       final index = client.requests.lastIndexOf('PUT /cards/wallet/wallet-1');
       expect(client.bodies[index]!['productId'], 'product-1');
       expect(find.text('Suggested match: Trail card'), findsNothing);
-      expect(find.text('All card perks'), findsOneWidget);
+      expect(find.text('Trip delay cover'), findsOneWidget);
     },
   );
 
   testWidgets(
     'confirming a suggested product warns before clearing overrides',
     (tester) async {
-      tester.view.physicalSize = const Size(392, 820);
+      tester.view.physicalSize = const Size(392, 1400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -538,10 +706,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.drag(find.byType(Scrollable).last, const Offset(0, -300));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Confirm card'));
-      await tester.tap(find.text('Confirm card'));
+      await _openCardDetails(tester);
+      final confirmButton = find.text('Confirm card');
+      await tester.scrollUntilVisible(
+        confirmButton,
+        240,
+        scrollable: _walletSheetScrollable(),
+      );
+      await tester.tap(confirmButton);
       await tester.pumpAndSettle();
 
       expect(find.text('Replace user-overridden benefits?'), findsOneWidget);
@@ -558,6 +730,10 @@ void main() {
   testWidgets('read-only members can see but cannot confirm suggestions', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(392, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final client = _CardsClient(
       linkedSuggestion: true,
       withOverride: true,
@@ -570,6 +746,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openCardDetails(tester);
 
     expect(
       find.text('Imported account name: Wells Fargo Active Cash 4521'),
@@ -599,7 +776,7 @@ void main() {
   testWidgets('ambiguous linked-card candidates require a product choice', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(392, 1000);
+    tester.view.physicalSize = const Size(392, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -611,11 +788,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openCardDetails(tester);
     expect(
       find.text('Imported account name: Wells Fargo Active Cash 4521'),
       findsOneWidget,
     );
-    expect(find.text('All card perks'), findsNothing);
+    expect(find.text('Benefits'), findsOneWidget);
     final candidateField = find.byWidgetPredicate(
       (widget) =>
           widget is DropdownButtonFormField<String> &&
@@ -625,7 +803,7 @@ void main() {
     await tester.scrollUntilVisible(
       candidateField,
       240,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: _walletSheetScrollable(),
     );
     await tester.tap(candidateField);
     await tester.pumpAndSettle();
@@ -643,7 +821,7 @@ void main() {
   testWidgets(
     'removing the first reward keeps the remaining row values aligned',
     (tester) async {
-      tester.view.physicalSize = const Size(392, 820);
+      tester.view.physicalSize = const Size(392, 1400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -655,17 +833,19 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await _openCardDetails(tester);
+      final editButton = find.text('Edit card benefits');
       await tester.scrollUntilVisible(
-        find.text('Edit card benefits').last,
+        editButton,
         240,
-        scrollable: find.byType(Scrollable).last,
+        scrollable: _walletSheetScrollable(),
       );
-      await tester.tap(find.text('Edit card benefits').last);
+      await tester.tap(editButton);
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('Add reward'),
         240,
-        scrollable: find.byType(Scrollable).last,
+        scrollable: _editorScrollable(),
       );
       await tester.tap(find.text('Add reward'));
       await tester.pumpAndSettle();
@@ -714,6 +894,23 @@ void main() {
 Finder _scrollableFor(Finder child) =>
     find.ancestor(of: child, matching: find.byType(Scrollable)).first;
 
+Finder _walletSheetScrollable() => find
+    .descendant(
+      of: find.byType(DraggableScrollableSheet),
+      matching: find.byType(Scrollable),
+      skipOffstage: false,
+    )
+    .first;
+
+Finder _editorScrollable() => find.byType(Scrollable, skipOffstage: false).last;
+
+Future<void> _openCardDetails(WidgetTester tester) async {
+  await tester.tap(find.byType(CardPreview).last);
+  await tester.pumpAndSettle();
+  expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+  expect(find.byType(Scrollable, skipOffstage: false), findsWidgets);
+}
+
 Finder _formFieldForLabel(String text) => find
     .ancestor(of: find.text(text).last, matching: find.byType(TextFormField))
     .first;
@@ -725,6 +922,7 @@ class _CardsClient extends GreenhouseClient {
     this.linkedSuggestion = false,
     this.unknownProduct = false,
     this.ambiguousMatch = false,
+    this.multipleCards = false,
     this.role = HouseholdRole.owner,
   });
 
@@ -732,6 +930,7 @@ class _CardsClient extends GreenhouseClient {
   final bool linkedSuggestion;
   final bool unknownProduct;
   final bool ambiguousMatch;
+  final bool multipleCards;
   final HouseholdRole role;
   bool withOverride;
   bool productConfirmed = false;
@@ -847,6 +1046,33 @@ class _CardsClient extends GreenhouseClient {
               ? {'rewards': [], 'benefits': []}
               : null,
         },
+        if (multipleCards)
+          {
+            'id': 'wallet-2',
+            'kind': 'manual',
+            'displayName': 'Backup card',
+            'mask': '1122',
+            'productId': 'product-1',
+            'openedOn': null,
+            'benefitOverride': withOverride
+                ? {
+                    'rewards': [
+                      {'categoryId': 'groceries', 'rate': 7, 'unit': 'percent'},
+                    ],
+                    'benefits': [],
+                  }
+                : null,
+          },
+        if (multipleCards)
+          {
+            'id': 'wallet-3',
+            'kind': 'manual',
+            'displayName': 'Travel backup',
+            'mask': '7788',
+            'productId': 'product-1',
+            'openedOn': null,
+            'benefitOverride': null,
+          },
       ],
     };
   }

@@ -1,7 +1,7 @@
 name: greenhouse
 description: "The native GreenHouse companion."
 publish_to: 'none'
-version: 0.1.5+6
+version: 0.1.6+7
 
 environment:
   sdk: ^3.13.7

@@ -295,7 +295,9 @@ class _GreenHouseAppState extends State<GreenHouseApp>
           ExcludeSemantics(
             excluding: privacyCover,
             child: ExcludeFocus(
-              excluding: privacyCover,
+              // A password manager may make the app inactive to authenticate.
+              // Keep its autofill connection alive until the credentials return.
+              excluding: privacyCover && owner != null,
               child: IgnorePointer(
                 ignoring: privacyCover,
                 child: Stack(

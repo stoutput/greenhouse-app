@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'greenhouse_client.dart';
 import 'greenhouse_theme.dart';
+import 'login_challenge.dart';
 
 class EntryScreen extends StatefulWidget {
   const EntryScreen({
@@ -76,8 +78,15 @@ class _EntryScreenState extends State<EntryScreen> {
       final identity = await widget.client.signIn(
         email.text.trim(),
         password.text,
+        verifyChallenge: (url) async {
+          if (!mounted) return null;
+          return Navigator.of(context).push<String>(
+            MaterialPageRoute(builder: (_) => LoginChallenge(url: url)),
+          );
+        },
       );
       if (!mounted) return;
+      TextInput.finishAutofillContext();
       password.clear();
       widget.onSignedIn(identity);
     });
@@ -205,6 +214,7 @@ class _EntryScreenState extends State<EntryScreen> {
                     const SizedBox(height: 12),
                   ],
                   AutofillGroup(
+                    onDisposeAction: AutofillContextAction.cancel,
                     child: Form(
                       key: form,
                       child: Column(
@@ -213,7 +223,10 @@ class _EntryScreenState extends State<EntryScreen> {
                           TextFormField(
                             controller: email,
                             enabled: !busy,
-                            autofillHints: const [AutofillHints.username],
+                            autofillHints: const [
+                              AutofillHints.username,
+                              AutofillHints.email,
+                            ],
                             keyboardType: TextInputType.emailAddress,
                             textInputAction: TextInputAction.next,
                             autocorrect: false,

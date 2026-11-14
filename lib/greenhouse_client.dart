@@ -165,6 +165,7 @@ class GreenhouseClient {
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
     aOptions: AndroidOptions.biometric(
       enforceBiometrics: true,
+      requireBiometricsPerOperation: true,
       biometricType: AndroidBiometricType.strongBiometricOnly,
     ),
     iOptions: IOSOptions(
@@ -335,7 +336,11 @@ class GreenhouseClient {
 
   /// Signs in and returns the current household identity. The token stays in
   /// memory only.
-  Future<HouseholdIdentity> signIn(String email, String password) async {
+  Future<HouseholdIdentity> signIn(
+    String email,
+    String password, {
+    Future<String?> Function(Uri challengeUrl)? verifyChallenge,
+  }) async {
     if (email.trim().isEmpty || password.isEmpty) {
       throw const GreenhouseException('Email and password are required.');
     }
@@ -346,13 +351,45 @@ class GreenhouseClient {
     }
 
     final generation = ++_authGeneration;
+    // Refresh before each password attempt: server settings can change while
+    // this device stays linked. Older servers omit the optional flag.
+    final info = await _fetchInfo(origin);
+    if (generation != _authGeneration || _origin != origin) {
+      throw const GreenhouseException('Sign in was cancelled.');
+    }
+    String? challengeToken;
+    if (info.turnstileRequired) {
+      if (verifyChallenge == null) {
+        throw const GreenhouseException('Complete verification to sign in.');
+      }
+      challengeToken = await verifyChallenge(
+        origin.resolve('/api/v1/mobile/challenge'),
+      );
+      if (challengeToken == null) {
+        throw const GreenhouseException('Verification was cancelled.');
+      }
+      if (challengeToken.trim().isEmpty || challengeToken.length > 2048) {
+        throw const GreenhouseException('Verification failed. Try again.');
+      }
+    }
+    if (generation != _authGeneration || _origin != origin) {
+      throw const GreenhouseException('Sign in was cancelled.');
+    }
     final devices = await _deviceDetails();
+    if (generation != _authGeneration || _origin != origin) {
+      throw const GreenhouseException('Sign in was cancelled.');
+    }
     final result = await _send(
       origin: origin,
       path: '/mobile/login',
       method: 'POST',
       publicRoute: true,
-      body: {'email': email.trim(), 'password': password, ...devices},
+      body: {
+        'email': email.trim(),
+        'password': password,
+        ...devices,
+        'cf-turnstile-response': ?challengeToken,
+      },
     );
 
     if (generation != _authGeneration || _origin != origin) {
@@ -953,7 +990,9 @@ class GreenhouseClient {
         version != 1 ||
         name is! String ||
         name.trim().isEmpty ||
-        setupRequired is! bool) {
+        setupRequired is! bool ||
+        (json['turnstileRequired'] != null &&
+            json['turnstileRequired'] is! bool)) {
       throw const GreenhouseException(
         'The greenhouse returned an invalid info response.',
       );
@@ -963,6 +1002,7 @@ class GreenhouseClient {
       version: version,
       name: name.trim(),
       setupRequired: setupRequired,
+      turnstileRequired: json['turnstileRequired'] == true,
     );
   }
 
@@ -1315,12 +1355,14 @@ class _Info {
     required this.version,
     required this.name,
     required this.setupRequired,
+    required this.turnstileRequired,
   });
 
   final String service;
   final num version;
   final String name;
   final bool setupRequired;
+  final bool turnstileRequired;
 }
 
 class _Candidate {

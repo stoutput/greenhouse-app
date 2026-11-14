@@ -40,9 +40,13 @@ as Actions **variables**. Leave them all unset to build without push.
 2. At the app’s setup screen, search the LAN or enter the HTTPS origin. LAN search uses the `_greenhouse._tcp` DNS-SD service with an `origin` TXT record.
 3. Sign in with your existing GreenHouse credentials. The app shows your household role in Settings. Owners and admins can make shared financial changes; gardeners can view household finances and manage personal device settings. Household invitations and role management remain in GreenHouse web. Use your device screen lock, or set an unlock PIN if your device has none, and optionally enable biometrics for sign-in. You can change these options in app Settings.
 
+When the server enables Cloudflare Turnstile, password sign-in opens an embedded verification screen before submitting your credentials. The screen loads from your selected server and uses its existing widget configuration; the app needs no Turnstile keys or build settings. Register the hostname used by the app on the server's Turnstile widget and in `TURNSTILE_HOSTNAMES`. This requires a server version with mobile Turnstile support. Biometric unlock of an existing session does not repeat the challenge.
+
 The app connects to the server you select. Household identity and permissions come from that server; the mobile app does not provide cloud-wide tenant selection or household administration.
 
 For a reverse-proxy installation, set the backend’s `GREENHOUSE_PUBLIC_ORIGIN` and `GREENHOUSE_MOBILE_TRUSTED_PROXIES` to the public HTTPS origin and the exact immediate proxy IPs. The proxy must overwrite `X-Forwarded-Proto` with `https` for secure requests, and the backend port must be reachable only through the intended proxy. See the GreenHouse deployment guide for DNS-SD publishing with Docker.
+
+Each **Unlock with biometrics** attempt requires fresh biometric authentication, including after a successful unlock earlier in the same app session.
 
 Settings → **Unlink device** revokes the device session when the instance is reachable, clears the saved connection and returns to setup. If the app cannot confirm remote revocation, use **Settings → Known devices** on the web to remove the old registration. **Sign out** retains the selected instance.
 

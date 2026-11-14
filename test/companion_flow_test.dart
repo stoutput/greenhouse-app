@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:greenhouse/greenhouse_client.dart';
@@ -9,6 +10,52 @@ import 'package:greenhouse/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  testWidgets(
+    'password-manager authentication keeps the login autofill connection',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final client = _FixtureClient();
+      addTearDown(client.dispose);
+      await tester.pumpWidget(GreenHouseApp(client: client));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Search local network'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Garden server'));
+      await tester.pumpAndSettle();
+      final fields = find.byType(EditableText);
+      await tester.showKeyboard(find.byType(TextFormField).first);
+      final email = tester.widget<EditableText>(fields.first);
+      final password = tester.widget<EditableText>(fields.last);
+      expect(email.focusNode.hasFocus, isTrue);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(email.focusNode.hasFocus, isTrue);
+      expect(tester.testTextInput.hasAnyClients, isTrue);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'flutter/textinput',
+        const JSONMethodCodec().encodeMethodCall(
+          MethodCall('TextInputClient.updateEditingStateWithTag', [
+            0,
+            {
+              tester.state<EditableTextState>(fields.first).autofillId:
+                  const TextEditingValue(text: 'saved@example.test').toJSON(),
+              tester.state<EditableTextState>(fields.last).autofillId:
+                  const TextEditingValue(text: 'saved-password').toJSON(),
+            },
+          ]),
+        ),
+        (_) {},
+      );
+      await tester.pump();
+      expect(email.controller.text, 'saved@example.test');
+      expect(password.controller.text, 'saved-password');
+    },
+  );
+
   testWidgets('a delayed Cards lookup does not override a selected page', (
     tester,
   ) async {
@@ -109,6 +156,14 @@ void main() {
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
 
+    expect(
+      tester.testTextInput.log.any(
+        (call) =>
+            call.method == 'TextInput.finishAutofillContext' &&
+            call.arguments == true,
+      ),
+      isTrue,
+    );
     expect(find.text('Set an unlock PIN'), findsOneWidget);
     await tester.enterText(find.byType(TextField).last, '123456');
     await tester.tap(find.text('Continue'));
@@ -247,7 +302,11 @@ class _FixtureClient extends GreenhouseClient {
   HouseholdIdentity? get identity => selectedIdentity;
 
   @override
-  Future<HouseholdIdentity> signIn(String email, String password) async {
+  Future<HouseholdIdentity> signIn(
+    String email,
+    String password, {
+    Future<String?> Function(Uri challengeUrl)? verifyChallenge,
+  }) async {
     return selectedIdentity = HouseholdIdentity.fromJson({
       'id': 'owner-id',
       'email': email,

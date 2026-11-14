@@ -62,27 +62,6 @@ List<Json> effectiveCardBenefits(Json card, Json? product) {
   return objects(product?['benefits']);
 }
 
-List<Json> walletRewardCategories({
-  required List<Json> wallet,
-  required List<Json> products,
-  required List<Json> categories,
-}) {
-  final productById = {for (final product in products) product['id']: product};
-  final availableIds = <String>{};
-  for (final card in wallet) {
-    final product = productById[card['productId']];
-    for (final reward in effectiveCardRewards(card, product)) {
-      if (reward['categoryId'] case final String id) availableIds.add(id);
-      if (reward['additionalCategoryIds'] case final List ids) {
-        availableIds.addAll(ids.whereType<String>());
-      }
-    }
-  }
-  return categories
-      .where((category) => availableIds.contains(category['id']))
-      .toList();
-}
-
 List<CardRecommendation> rankCardsForCategory({
   required List<Json> wallet,
   required List<Json> products,
@@ -249,17 +228,10 @@ class _CardsState extends State<Cards> {
   );
 
   List<Widget> _contents(CardsCatalog catalog) {
-    final categories = walletRewardCategories(
-      wallet: catalog.wallet,
-      products: catalog.products,
-      categories: catalog.categories,
-    );
+    final categories = catalog.categories;
     if (selectedCategoryId != null &&
         categories.every((category) => category['id'] != selectedCategoryId)) {
       selectedCategoryId = null;
-    }
-    if (selectedCategoryId == null && categories.isNotEmpty) {
-      selectedCategoryId = label(categories.first['id'], '');
     }
     final selectedCard = selectedCardId == null
         ? null
@@ -762,7 +734,7 @@ class CardPreview extends StatelessWidget {
     final logo = Uri.tryParse(label(fallback['issuerLogoUrl'], ''));
     final useLogo = logo?.scheme == 'https';
     final lightFallback = background.computeLuminance() > .65;
-    final showNumber = height >= 140;
+    final showNumber = height >= 170;
     return Semantics(
       label:
           '${label(product?['name'], label(walletCard['displayName'], 'Unknown card'))}, ${_maskLabel(walletCard['mask'])}${hasBenefitOverride(walletCard) ? ', benefits customized' : ''}',

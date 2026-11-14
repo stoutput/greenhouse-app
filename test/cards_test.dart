@@ -198,83 +198,6 @@ void main() {
     },
   );
 
-  test('purchase categories come only from effective wallet rewards', () {
-    const categories = [
-      {'id': 'all-purchases', 'label': 'All purchases'},
-      {'id': 'groceries', 'label': 'Groceries'},
-      {'id': 'costco-gas', 'label': 'Gas at Costco'},
-      {'id': 'override-only', 'label': 'Custom category'},
-      {'id': 'manual-only', 'label': 'Manual card category'},
-      {'id': 'unrelated', 'label': 'Entertainment'},
-    ];
-    const products = [
-      {
-        'id': 'owned',
-        'name': 'Owned card',
-        'rewards': [
-          {'categoryId': 'groceries', 'rate': 2, 'unit': 'percent'},
-        ],
-      },
-      {
-        'id': 'unowned',
-        'name': 'Unowned card',
-        'rewards': [
-          {'categoryId': 'unrelated', 'rate': 4, 'unit': 'percent'},
-        ],
-      },
-    ];
-    const wallet = [
-      {
-        'productId': 'owned',
-        'benefitOverride': {
-          'rewards': [
-            {
-              'categoryId': 'override-only',
-              'additionalCategoryIds': ['costco-gas'],
-              'rate': 5,
-              'unit': 'percent',
-            },
-          ],
-        },
-      },
-      {
-        'productId': null,
-        'benefitOverride': {
-          'rewards': [
-            {'categoryId': 'manual-only', 'rate': 3, 'unit': 'percent'},
-          ],
-        },
-      },
-    ];
-
-    expect(
-      walletRewardCategories(
-        wallet: wallet,
-        products: products,
-        categories: categories,
-      ).map((category) => category['id']),
-      ['costco-gas', 'override-only', 'manual-only'],
-    );
-    expect(
-      walletRewardCategories(
-        wallet: [
-          ...wallet,
-          {
-            'productId': 'owned',
-            'benefitOverride': {
-              'rewards': [
-                {'categoryId': 'all-purchases', 'rate': 1, 'unit': 'percent'},
-              ],
-            },
-          },
-        ],
-        products: products,
-        categories: categories,
-      ).map((category) => category['id']),
-      contains('all-purchases'),
-    );
-  });
-
   test(
     'masked display fills the network digit groups without revealing a PAN',
     () {
@@ -307,12 +230,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('What are you purchasing today?'), findsOneWidget);
+    expect(find.text('Best for this purchase'), findsNothing);
     expect(find.text('Use this card for the best benefits!'), findsNothing);
     await tester.tap(find.byTooltip('Show categories'));
     await tester.pumpAndSettle();
-    expect(find.text('All purchases'), findsNothing);
+    expect(find.text('All purchases'), findsOneWidget);
     expect(find.text('Groceries'), findsOneWidget);
-    expect(find.text('Dining'), findsNothing);
+    expect(find.text('Dining'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'grocries');
     await tester.pumpAndSettle();
     expect(find.text('Groceries'), findsOneWidget);
@@ -349,6 +273,63 @@ void main() {
     await tester.tapAt(const Offset(1, 1));
     await tester.pumpAndSettle();
     expect(find.text('Use this card for the best benefits!'), findsNothing);
+  });
+
+  testWidgets('curated categories use universal rewards and wallet overrides', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(392, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final client = _CardsClient(categoryComparison: true);
+    addTearDown(client.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: Cards(client: client)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Best for this purchase'), findsNothing);
+    await tester.tap(find.byTooltip('Show categories'));
+    await tester.pumpAndSettle();
+    expect(find.text('All purchases'), findsOneWidget);
+    expect(find.text('Groceries'), findsOneWidget);
+    expect(find.text('Dining'), findsOneWidget);
+    expect(find.text('Travel & lodging'), findsOneWidget);
+    await tester.tap(find.text('Dining').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text('2% · Dining'),
+      ),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(find.text('Close'));
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'travel');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Travel & lodging').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text('8x · Travel & lodging'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text('User-overridden benefits'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('card preview renders the issuer logo fallback', (tester) async {
@@ -923,6 +904,7 @@ class _CardsClient extends GreenhouseClient {
     this.unknownProduct = false,
     this.ambiguousMatch = false,
     this.multipleCards = false,
+    this.categoryComparison = false,
     this.role = HouseholdRole.owner,
   });
 
@@ -931,6 +913,7 @@ class _CardsClient extends GreenhouseClient {
   final bool unknownProduct;
   final bool ambiguousMatch;
   final bool multipleCards;
+  final bool categoryComparison;
   final HouseholdRole role;
   bool withOverride;
   bool productConfirmed = false;
@@ -998,6 +981,8 @@ class _CardsClient extends GreenhouseClient {
             'foregroundColor': '#ffffff',
           },
           'rewards': [
+            if (categoryComparison)
+              {'categoryId': 'all-purchases', 'rate': 1, 'unit': 'percent'},
             {
               'categoryId': 'travel',
               if (staleAlias) 'additionalCategoryIds': ['groceries'],
@@ -1042,7 +1027,19 @@ class _CardsClient extends GreenhouseClient {
               linkedSuggestion && !productConfirmed && ambiguousMatch
               ? ['product-1']
               : [],
-          'benefitOverride': withOverride
+          'benefitOverride': categoryComparison
+              ? {
+                  'rewards': [
+                    {
+                      'categoryId': 'all-purchases',
+                      'rate': 2,
+                      'unit': 'percent',
+                    },
+                    {'categoryId': 'travel', 'rate': 8, 'unit': 'x'},
+                  ],
+                  'benefits': [],
+                }
+              : withOverride
               ? {'rewards': [], 'benefits': []}
               : null,
         },

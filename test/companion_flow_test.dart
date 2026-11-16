@@ -105,8 +105,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Search transactions'), findsOneWidget);
     navigationResponse.complete({
-      'enabled': true,
-      'navigationPage': {'id': 'cards', 'title': 'Cards'},
+      'pages': [
+        {
+          'installationId': 'install-1',
+          'pageId': 'wallet',
+          'title': 'Cards',
+          'description': 'Compare card benefits',
+          'path': '/plugins/install-1/pages/wallet',
+          'icon': 'wallet',
+          'version': 2,
+          'availability': 'available',
+          'requiredCapabilities': [],
+          'legacyPaths': ['/cards'],
+        },
+      ],
     });
     await tester.pumpAndSettle();
     expect(find.text('Search transactions'), findsOneWidget);
@@ -117,7 +129,7 @@ void main() {
     await tester.tap(find.text('More').last);
     await tester.pumpAndSettle();
     expect(find.text('Cards'), findsOneWidget);
-    expect(client.requests, contains('/cards/navigation'));
+    expect(client.requests, contains('/ui/navigation'));
     expect(client.requests, isNot(contains('/cards')));
   });
 
@@ -347,18 +359,8 @@ class _FixtureClient extends GreenhouseClient {
     Map<String, String>? query,
   }) async {
     requests.add(path);
-    if (path == '/cards/navigation') {
-      return navigationResponse?.future ??
-          {'enabled': false, 'navigationPage': null};
-    }
-    if (path == '/cards') {
-      return {
-        'enabled': false,
-        'navigationPage': null,
-        'products': [],
-        'categories': [],
-        'wallet': [],
-      };
+    if (path == '/ui/navigation') {
+      return navigationResponse?.future ?? {'pages': []};
     }
     if (path == '/financial-picture') {
       return {

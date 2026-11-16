@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'accounts.dart';
 import 'ambient_lighting.dart';
 import 'app_lock.dart';
-import 'cards.dart';
 import 'companion_navigation.dart';
 import 'finance_widgets.dart';
 import 'greenhouse_client.dart';
@@ -16,6 +15,7 @@ import 'greenhouse_theme.dart';
 import 'onboarding.dart';
 import 'overview.dart';
 import 'planning.dart';
+import 'plugin_pages.dart';
 import 'settings.dart';
 import 'transactions.dart';
 
@@ -484,19 +484,30 @@ class _ControlCenterState extends State<_ControlCenter>
   String page = CompanionPage.overview;
   String defaultPage = CompanionPage.overview;
   String savedDefaultPage = CompanionPage.overview;
-  bool cardsEnabled = false;
-  String cardsTitle = 'Cards';
+  List<PluginPageEntry> pluginPages = const [];
+  Map<String, String> activityQuery = const {};
   int navigationRevision = 0;
+  int discoveryGeneration = 0;
+  Timer? _discoveryTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _restoreNavigation();
+    _startDiscoveryTimer();
+    unawaited(_restoreNavigation());
+  }
+
+  void _startDiscoveryTimer() {
+    _discoveryTimer?.cancel();
+    _discoveryTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      unawaited(_discover());
+    });
   }
 
   @override
   void dispose() {
+    _discoveryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -504,7 +515,12 @@ class _ControlCenterState extends State<_ControlCenter>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_refreshCardsDiscovery());
+      _startDiscoveryTimer();
+      unawaited(_discover());
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _discoveryTimer?.cancel();
+      _discoveryTimer = null;
     }
   }
 
@@ -518,79 +534,59 @@ class _ControlCenterState extends State<_ControlCenter>
       );
     } catch (_) {}
     if (!mounted) return;
-    if (saved != CompanionPage.cards && navigationRevision == initialRevision) {
+    savedDefaultPage = saved ?? CompanionPage.overview;
+    if (CompanionPage.isCore(saved) && navigationRevision == initialRevision) {
       setState(() {
-        savedDefaultPage = saved ?? CompanionPage.overview;
         defaultPage = CompanionPage.resolveDefault(
           savedDefaultPage,
-          cardsEnabled: false,
+          pluginPages: pluginPages,
         );
         page = defaultPage;
       });
-    } else {
-      savedDefaultPage = saved ?? CompanionPage.overview;
     }
-
-    Json? discovery;
-    try {
-      discovery = await widget.client.request('/cards/navigation');
-    } catch (_) {
-      // A missing or unavailable plugin leaves the core destinations usable.
-    }
-    if (!mounted) return;
-    final navigationPage = object(discovery?['navigationPage']);
-    final available =
-        discovery?['enabled'] == true && navigationPage.isNotEmpty;
-    setState(() {
-      cardsEnabled = available;
-      cardsTitle = label(navigationPage['title'], 'Cards');
-      defaultPage = CompanionPage.resolveDefault(
-        savedDefaultPage,
-        cardsEnabled: available,
-      );
-      page = CompanionPage.restorePage(
-        savedPage: savedDefaultPage,
-        currentPage: page,
-        cardsEnabled: available,
-        startingRevision: initialRevision,
-        currentRevision: navigationRevision,
-      );
-    });
+    await _discover(initialRevision: initialRevision, initial: true);
   }
 
-  Future<void> _refreshCardsDiscovery() async {
-    Json? discovery;
+  Future<void> _discover({int? initialRevision, bool initial = false}) async {
+    final startingRevision = initialRevision ?? navigationRevision;
+    final generation = ++discoveryGeneration;
+    PluginNavigation? navigation;
     try {
-      discovery = await widget.client.request('/cards/navigation');
+      navigation = await fetchPluginNavigation(widget.client);
     } catch (_) {
-      // Treat discovery errors like a temporarily unavailable contribution.
+      // A failed discovery clears every previously actionable plugin page.
     }
-    if (!mounted) return;
-    final navigationPage = object(discovery?['navigationPage']);
-    final available =
-        discovery?['enabled'] == true && navigationPage.isNotEmpty;
+    if (!mounted || generation != discoveryGeneration) return;
+    final pages = navigation?.pages ?? const <PluginPageEntry>[];
+    final currentEntry = PluginNavigation(pages).byPath(page);
     setState(() {
-      cardsEnabled = available;
-      cardsTitle = label(navigationPage['title'], 'Cards');
+      pluginPages = pages;
       defaultPage = CompanionPage.resolveDefault(
         savedDefaultPage,
-        cardsEnabled: available,
+        pluginPages: pages,
       );
-      if (!available && page == CompanionPage.cards) {
-        page = CompanionPage.resolveDefault(
-          savedDefaultPage,
-          cardsEnabled: false,
-        );
+      if (navigationRevision != startingRevision) {
+        // The member already opened a page while discovery was in flight.
+        return;
+      }
+      if (initial) {
+        page = defaultPage;
+      } else if (!CompanionPage.isCore(page)) {
+        if (currentEntry == null || !currentEntry.available) {
+          page = defaultPage;
+        }
       }
     });
   }
+
+  Future<void> _refreshDiscovery() => _discover();
 
   void _setDefaultPage(String value) {
     setState(() {
       savedDefaultPage = value;
       defaultPage = CompanionPage.resolveDefault(
         value,
-        cardsEnabled: cardsEnabled,
+        pluginPages: pluginPages,
       );
     });
     unawaited(
@@ -603,44 +599,56 @@ class _ControlCenterState extends State<_ControlCenter>
     );
   }
 
-  void _cardsDisabled() {
-    if (!mounted) return;
+  void _openPage(String value) {
+    final target = CompanionPage.route(value, pluginPages);
+    if (target == null) return;
+    navigationRevision++;
     setState(() {
-      cardsEnabled = false;
-      if (page == CompanionPage.cards) {
-        page = CompanionPage.resolveDefault(
-          savedDefaultPage,
-          cardsEnabled: false,
-        );
-      }
+      page = target.page;
+      activityQuery = target.query;
     });
+    if (target.page == CompanionPage.more) unawaited(_refreshDiscovery());
   }
 
-  void _openPage(String value) {
-    navigationRevision++;
-    setState(() => page = value);
-    if (value == CompanionPage.more) unawaited(_refreshCardsDiscovery());
-  }
+  bool _pageStillAvailable(PluginPageEntry entry) =>
+      mounted &&
+      page == entry.path &&
+      pluginPages.any(
+        (candidate) => candidate.path == entry.path && candidate.available,
+      );
 
   @override
   Widget build(BuildContext context) {
     final client = widget.client;
-    final screen = switch (page) {
-      CompanionPage.overview => Overview(
+    final pluginEntry = PluginNavigation(pluginPages).byPath(page);
+    final Widget screen;
+    if (pluginEntry != null &&
+        pluginEntry.available &&
+        !CompanionPage.isCore(page)) {
+      screen = PluginPageScreen(
+        key: ValueKey('${pluginEntry.path}:$navigationRevision'),
         client: client,
-        onActivity: () => _openPage(CompanionPage.activity),
-      ),
-      CompanionPage.activity => Activity(client: client),
-      CompanionPage.accounts => Accounts(client: client),
-      CompanionPage.plan => Planning(client: client),
-      CompanionPage.insights => Insights(client: client),
-      CompanionPage.cards => Cards(client: client, onDisabled: _cardsDisabled),
-      _ => MorePages(
-        cardsEnabled: cardsEnabled,
-        cardsTitle: cardsTitle,
-        onOpen: _openPage,
-      ),
-    };
+        entry: pluginEntry,
+        allowedDestinations: CompanionPage.destinationsFor(pluginPages),
+        onNavigate: _openPage,
+        isCurrent: () => _pageStillAvailable(pluginEntry),
+      );
+    } else {
+      screen = switch (page) {
+        CompanionPage.overview => Overview(
+          client: client,
+          onActivity: () => _openPage(CompanionPage.activity),
+        ),
+        CompanionPage.activity => Activity(
+          client: client,
+          initialQuery: activityQuery,
+        ),
+        CompanionPage.accounts => Accounts(client: client),
+        CompanionPage.plan => Planning(client: client),
+        CompanionPage.insights => Insights(client: client),
+        _ => MorePages(pluginPages: pluginPages, onOpen: _openPage),
+      };
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Brand(),
@@ -667,7 +675,9 @@ class _ControlCenterState extends State<_ControlCenter>
                   mode: widget.mode,
                   onTheme: widget.onTheme,
                   defaultPage: defaultPage,
-                  cardsEnabled: cardsEnabled,
+                  defaultOptions: CompanionPage.defaultOptions(
+                    pluginPages: pluginPages,
+                  ),
                   onDefaultPage: _setDefaultPage,
                   appLock: widget.appLock,
                   onLockEnabled: widget.onLockEnabled,
@@ -728,7 +738,7 @@ class _SettingsRoute extends StatefulWidget {
     required this.mode,
     required this.onTheme,
     required this.defaultPage,
-    required this.cardsEnabled,
+    required this.defaultOptions,
     required this.onDefaultPage,
     required this.appLock,
     required this.onLockEnabled,
@@ -739,7 +749,7 @@ class _SettingsRoute extends StatefulWidget {
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onTheme;
   final String defaultPage;
-  final bool cardsEnabled;
+  final List<(String, String)> defaultOptions;
   final ValueChanged<String> onDefaultPage;
   final AppLock appLock;
   final Future<void> Function(bool) onLockEnabled;
@@ -762,7 +772,7 @@ class _SettingsRouteState extends State<_SettingsRoute> {
     mode: mode,
     onSessionEnded: widget.onSessionEnded,
     defaultPage: defaultPage,
-    cardsEnabled: widget.cardsEnabled,
+    defaultOptions: widget.defaultOptions,
     onDefaultPage: (value) {
       setState(() => defaultPage = value);
       widget.onDefaultPage(value);

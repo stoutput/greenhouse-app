@@ -4,6 +4,10 @@ This Flutter app is the Android-first companion for a self-hosted [GreenHouse](h
 
 The app covers the financial overview, transaction search and annotation, account balances and renaming, spending plan review, recurring payments and spending insights, and the notification inbox. Owner setup, provider enrollment and repair, imports, and plugin administration are handled in the web app.
 
+## Dynamic plugin pages
+
+Installed plugins can contribute pages without an app release. The app negotiates UI versions and component capabilities with `GET /api/v1/ui/navigation`, lists available pages under **More**, and offers them as per-device default pages. Each page is fetched from `GET /api/v1/ui/pages/:installationId/:pageId`, with declared queries and actions sent back to the server. A host-owned renderer draws sections, text, notices, images, facts, collections, searchable pickers, dialogs, disclosures, search, forms, buttons, collection details and links; financial calculations and ranking stay on the server. Pages that require a newer app show an update notice. Supported pages honor server read-only state, household roles, privacy-sensitive components, form drafts, validation errors and resource invalidation. Existing `/cards` default-page preferences and deep links migrate through the navigation response's `legacyPaths`.
+
 Ambient daylight and moonlight are enabled by default. Turn them off under **Settings → Appearance**.
 The subtle rays use the device clock for a decorative day/night cycle, without requesting location
 access or running a continuous animation. The preference is saved per account and instance on this device.

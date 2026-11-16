@@ -32,11 +32,17 @@ class DiscoveredGreenhouse {
 
 /// An error returned by, or while talking to, a greenhouse.
 class GreenhouseException implements Exception {
-  const GreenhouseException(this.message, {this.statusCode, this.cause});
+  const GreenhouseException(
+    this.message, {
+    this.statusCode,
+    this.cause,
+    this.details,
+  });
 
   final String message;
   final int? statusCode;
   final Object? cause;
+  final Json? details;
 
   @override
   String toString() => statusCode == null
@@ -1125,6 +1131,7 @@ class GreenhouseClient {
       throw GreenhouseException(
         _errorMessage(response),
         statusCode: response.statusCode,
+        details: _errorDetails(response),
       );
     }
 
@@ -1132,6 +1139,7 @@ class GreenhouseClient {
       throw GreenhouseException(
         _errorMessage(response),
         statusCode: response.statusCode,
+        details: _errorDetails(response),
       );
     }
     if (expectedStatus != null && response.statusCode != expectedStatus) {
@@ -1178,6 +1186,19 @@ class GreenhouseClient {
       throw const GreenhouseException('Invalid API path.');
     }
     return normalized;
+  }
+
+  Json? _errorDetails(http.Response response) {
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map && decoded['error'] is Map) {
+        final details = (decoded['error'] as Map)['details'];
+        if (details is Map) {
+          return details.map((key, value) => MapEntry('$key', value));
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   String _errorMessage(http.Response response) {

@@ -1,0 +1,2111 @@
+{
+  "version": 2,
+  "providers": {
+    "wallet": {
+      "type": "host",
+      "capability": "cards-wallet.v1"
+    }
+  },
+  "resources": [
+    {
+      "id": "wallet",
+      "provider": "wallet",
+      "operation": "wallet",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "categoryId": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "subtitle": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "caption": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "fallbackLabel": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "issuerLogoUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tone": {
+                  "type": "string",
+                  "maxLength": 7,
+                  "enum": [
+                    "forest",
+                    "ocean",
+                    "plum",
+                    "gold",
+                    "neutral"
+                  ]
+                },
+                "badges": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "tone": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "forest",
+                          "ocean",
+                          "plum",
+                          "gold",
+                          "neutral"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "tone"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "imageUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "highlights": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "facts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "productId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "editProductId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "identificationNotice": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "openedOn": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rewards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "categoryId": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "additionalCategoryIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 8000
+                        },
+                        "maxItems": 100
+                      },
+                      "validFrom": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "validThrough": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "rate": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      "unit": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "percent",
+                          "x"
+                        ]
+                      },
+                      "cap": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "conditions": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "categoryId",
+                      "rate",
+                      "unit",
+                      "cap",
+                      "conditions"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "benefits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "categoryId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "description",
+                      "categoryId"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "removable": {
+                  "type": "boolean"
+                },
+                "customized": {
+                  "type": "boolean"
+                },
+                "destination": {
+                  "type": "string",
+                  "maxLength": 8000
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 200
+          },
+          "attribution": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "requiredGrants": [
+        "accounts:read"
+      ],
+      "initialInput": {
+        "limit": 100
+      }
+    },
+    {
+      "id": "categories",
+      "provider": "wallet",
+      "operation": "categories",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "categoryId": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "subtitle": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "caption": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "fallbackLabel": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "issuerLogoUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tone": {
+                  "type": "string",
+                  "maxLength": 7,
+                  "enum": [
+                    "forest",
+                    "ocean",
+                    "plum",
+                    "gold",
+                    "neutral"
+                  ]
+                },
+                "badges": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "tone": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "forest",
+                          "ocean",
+                          "plum",
+                          "gold",
+                          "neutral"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "tone"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "imageUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "highlights": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "facts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "productId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "editProductId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "identificationNotice": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "openedOn": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rewards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "categoryId": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "additionalCategoryIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 8000
+                        },
+                        "maxItems": 100
+                      },
+                      "validFrom": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "validThrough": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "rate": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      "unit": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "percent",
+                          "x"
+                        ]
+                      },
+                      "cap": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "conditions": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "categoryId",
+                      "rate",
+                      "unit",
+                      "cap",
+                      "conditions"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "benefits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "categoryId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "description",
+                      "categoryId"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "removable": {
+                  "type": "boolean"
+                },
+                "customized": {
+                  "type": "boolean"
+                },
+                "destination": {
+                  "type": "string",
+                  "maxLength": 8000
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 200
+          },
+          "attribution": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "requiredGrants": [
+        "accounts:read"
+      ]
+    },
+    {
+      "id": "products",
+      "provider": "wallet",
+      "operation": "products",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "categoryId": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "subtitle": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "caption": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "fallbackLabel": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "issuerLogoUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tone": {
+                  "type": "string",
+                  "maxLength": 7,
+                  "enum": [
+                    "forest",
+                    "ocean",
+                    "plum",
+                    "gold",
+                    "neutral"
+                  ]
+                },
+                "badges": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "tone": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "forest",
+                          "ocean",
+                          "plum",
+                          "gold",
+                          "neutral"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "tone"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "imageUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "highlights": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "facts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "productId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "editProductId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "identificationNotice": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "openedOn": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rewards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "categoryId": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "additionalCategoryIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 8000
+                        },
+                        "maxItems": 100
+                      },
+                      "validFrom": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "validThrough": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "rate": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      "unit": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "percent",
+                          "x"
+                        ]
+                      },
+                      "cap": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "conditions": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "categoryId",
+                      "rate",
+                      "unit",
+                      "cap",
+                      "conditions"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "benefits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "categoryId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "description",
+                      "categoryId"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "removable": {
+                  "type": "boolean"
+                },
+                "customized": {
+                  "type": "boolean"
+                },
+                "destination": {
+                  "type": "string",
+                  "maxLength": 8000
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 200
+          },
+          "attribution": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "requiredGrants": [
+        "accounts:read"
+      ]
+    },
+    {
+      "id": "recommendations",
+      "provider": "wallet",
+      "operation": "recommendations",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "categoryId": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "subtitle": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "caption": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "fallbackLabel": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "issuerLogoUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tone": {
+                  "type": "string",
+                  "maxLength": 7,
+                  "enum": [
+                    "forest",
+                    "ocean",
+                    "plum",
+                    "gold",
+                    "neutral"
+                  ]
+                },
+                "badges": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "tone": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "forest",
+                          "ocean",
+                          "plum",
+                          "gold",
+                          "neutral"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "tone"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "imageUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "highlights": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "facts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "productId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "editProductId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "identificationNotice": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "openedOn": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rewards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "categoryId": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "additionalCategoryIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 8000
+                        },
+                        "maxItems": 100
+                      },
+                      "validFrom": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "validThrough": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "rate": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      "unit": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "percent",
+                          "x"
+                        ]
+                      },
+                      "cap": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "conditions": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "categoryId",
+                      "rate",
+                      "unit",
+                      "cap",
+                      "conditions"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "benefits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "categoryId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "description",
+                      "categoryId"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "removable": {
+                  "type": "boolean"
+                },
+                "customized": {
+                  "type": "boolean"
+                },
+                "destination": {
+                  "type": "string",
+                  "maxLength": 8000
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 200
+          },
+          "attribution": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "requiredGrants": [
+        "accounts:read"
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "id": "update",
+      "provider": "wallet",
+      "operation": "update",
+      "confirmation": {
+        "message": "Changing the card product clears your custom rewards and benefits. Continue?",
+        "input": "productId",
+        "from": {
+          "source": "selection",
+          "path": "productId",
+          "resource": "wallet"
+        },
+        "when": {
+          "source": "selection",
+          "path": "customized",
+          "resource": "wallet"
+        }
+      },
+      "access": "admin",
+      "requiredGrants": [
+        "accounts:read"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "productId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "openedOn": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "productId",
+          "openedOn"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "benefits",
+      "provider": "wallet",
+      "operation": "benefits",
+      "access": "admin",
+      "requiredGrants": [
+        "accounts:read"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "rewards": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "categoryId": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "additionalCategoryIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 8000
+                  },
+                  "maxItems": 100
+                },
+                "validFrom": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "validThrough": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "rate": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 7,
+                  "enum": [
+                    "percent",
+                    "x"
+                  ]
+                },
+                "cap": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "conditions": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "categoryId",
+                "rate",
+                "unit",
+                "cap",
+                "conditions"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100
+          },
+          "benefits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "categoryId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "title",
+                "description",
+                "categoryId"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "id",
+          "rewards",
+          "benefits"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "reset",
+      "provider": "wallet",
+      "operation": "reset",
+      "access": "admin",
+      "requiredGrants": [
+        "accounts:read"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "create",
+      "provider": "wallet",
+      "operation": "create",
+      "access": "admin",
+      "requiredGrants": [
+        "accounts:read"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "productId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "productId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "delete",
+      "provider": "wallet",
+      "operation": "delete",
+      "access": "admin",
+      "requiredGrants": [
+        "accounts:read"
+      ],
+      "confirmation": "Remove this manually tracked card?",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "components": [
+    {
+      "id": "layout",
+      "type": "collection-detail",
+      "children": [
+        "wallet",
+        "details"
+      ],
+      "emptyChildren": [
+        "purchase-picker"
+      ]
+    },
+    {
+      "id": "wallet",
+      "type": "collection",
+      "title": "Your wallet",
+      "resource": "wallet",
+      "data": {
+        "source": "resource",
+        "path": "items",
+        "resource": "wallet"
+      },
+      "presentation": "overlapping-cards",
+      "emptyText": "Add a credit card account or a manual card to begin."
+    },
+    {
+      "id": "details",
+      "type": "section",
+      "visibleWhen": {
+        "source": "selection",
+        "path": "id",
+        "resource": "wallet"
+      },
+      "title": {
+        "source": "selection",
+        "path": "title",
+        "resource": "wallet"
+      },
+      "children": [
+        "image",
+        "facts",
+        "identification-notice",
+        "transactions",
+        "identify",
+        "benefits",
+        "reset",
+        "remove"
+      ]
+    },
+    {
+      "id": "image",
+      "type": "image",
+      "data": {
+        "source": "selection",
+        "path": "",
+        "resource": "wallet"
+      },
+      "alt": {
+        "source": "selection",
+        "path": "title",
+        "resource": "wallet"
+      }
+    },
+    {
+      "id": "facts",
+      "type": "facts",
+      "data": {
+        "source": "selection",
+        "path": "facts",
+        "resource": "wallet"
+      },
+      "sensitive": true
+    },
+    {
+      "id": "identification-notice",
+      "type": "notice",
+      "tone": "info",
+      "text": {
+        "source": "selection",
+        "path": "identificationNotice",
+        "resource": "wallet"
+      }
+    },
+    {
+      "id": "transactions",
+      "type": "link",
+      "label": "View transactions",
+      "destination": {
+        "source": "selection",
+        "path": "destination",
+        "resource": "wallet"
+      }
+    },
+    {
+      "id": "identify",
+      "type": "form",
+      "title": "Card details",
+      "action": "update",
+      "resource": "wallet",
+      "input": {
+        "id": {
+          "source": "selection",
+          "path": "id",
+          "resource": "wallet"
+        }
+      },
+      "fields": [
+        {
+          "name": "productId",
+          "nullable": true,
+          "label": "Card product",
+          "type": "select",
+          "optionsResource": "products",
+          "value": {
+            "source": "selection",
+            "path": "editProductId",
+            "resource": "wallet"
+          }
+        },
+        {
+          "name": "openedOn",
+          "nullable": true,
+          "label": "Opened date",
+          "type": "date",
+          "value": {
+            "source": "selection",
+            "path": "openedOn",
+            "resource": "wallet"
+          }
+        }
+      ]
+    },
+    {
+      "id": "benefits",
+      "type": "form",
+      "title": "Rewards and benefits override",
+      "action": "benefits",
+      "resource": "wallet",
+      "input": {
+        "id": {
+          "source": "selection",
+          "path": "id",
+          "resource": "wallet"
+        }
+      },
+      "fields": [
+        {
+          "name": "rewards",
+          "label": "Rewards",
+          "type": "repeater",
+          "maxItems": 100,
+          "value": {
+            "source": "selection",
+            "path": "rewards",
+            "resource": "wallet"
+          },
+          "fields": [
+            {
+              "name": "categoryId",
+              "clearOnChange": [
+                "additionalCategoryIds"
+              ],
+              "label": "Category",
+              "type": "select",
+              "optionsResource": "categories",
+              "required": true
+            },
+            {
+              "name": "rate",
+              "label": "Rate",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "unit",
+              "label": "Unit",
+              "type": "select",
+              "options": [
+                {
+                  "value": "percent",
+                  "label": "%"
+                },
+                {
+                  "value": "x",
+                  "label": "x"
+                }
+              ]
+            },
+            {
+              "name": "cap",
+              "nullable": true,
+              "label": "Cap",
+              "type": "text"
+            },
+            {
+              "name": "conditions",
+              "nullable": true,
+              "label": "Conditions",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "name": "benefits",
+          "label": "Benefits",
+          "type": "repeater",
+          "maxItems": 100,
+          "value": {
+            "source": "selection",
+            "path": "benefits",
+            "resource": "wallet"
+          },
+          "fields": [
+            {
+              "name": "title",
+              "label": "Title",
+              "type": "text",
+              "required": true
+            },
+            {
+              "name": "description",
+              "label": "Description",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "name": "categoryId",
+              "label": "Category",
+              "type": "select",
+              "optionsResource": "categories",
+              "nullable": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reset",
+      "type": "button",
+      "label": "Reset rewards and benefits to catalog",
+      "action": "reset",
+      "resource": "wallet",
+      "input": {
+        "id": {
+          "source": "selection",
+          "path": "id",
+          "resource": "wallet"
+        }
+      }
+    },
+    {
+      "id": "remove",
+      "type": "button",
+      "visibleWhen": {
+        "source": "selection",
+        "path": "removable",
+        "resource": "wallet"
+      },
+      "label": "Remove manual card",
+      "action": "delete",
+      "resource": "wallet",
+      "input": {
+        "id": {
+          "source": "selection",
+          "path": "id",
+          "resource": "wallet"
+        }
+      }
+    },
+    {
+      "id": "add",
+      "type": "form",
+      "title": "Add manual card",
+      "action": "create",
+      "resource": "wallet",
+      "fields": [
+        {
+          "name": "displayName",
+          "label": "Card name",
+          "type": "text"
+        },
+        {
+          "name": "productId",
+          "nullable": true,
+          "label": "Card product",
+          "type": "select",
+          "optionsResource": "products"
+        }
+      ]
+    },
+    {
+      "id": "attribution",
+      "type": "notice",
+      "tone": "info",
+      "text": {
+        "source": "resource",
+        "path": "attribution",
+        "resource": "wallet"
+      }
+    },
+    {
+      "id": "purchase-picker",
+      "type": "picker",
+      "label": "What are you purchasing today?",
+      "text": "Search categories or merchants",
+      "resource": "categories",
+      "data": {
+        "source": "resource",
+        "path": "items",
+        "resource": "categories"
+      },
+      "emptyText": "No matching categories"
+    },
+    {
+      "id": "add-disclosure",
+      "type": "disclosure",
+      "title": "Add manual card",
+      "children": [
+        "add"
+      ]
+    },
+    {
+      "id": "recommendation-dialog",
+      "type": "dialog",
+      "title": "Use this card for the best benefits!",
+      "resource": "recommendations",
+      "input": {
+        "categoryId": {
+          "source": "selection",
+          "path": "id",
+          "resource": "categories"
+        }
+      },
+      "visibleWhen": {
+        "source": "selection",
+        "path": "id",
+        "resource": "categories"
+      },
+      "data": {
+        "source": "resource",
+        "path": "items.0",
+        "resource": "recommendations"
+      },
+      "dismissSelection": "categories",
+      "children": [
+        "recommendation-art",
+        "recommendation-highlights"
+      ],
+      "emptyText": "No listed card earns rewards for this category."
+    },
+    {
+      "id": "recommendation-art",
+      "type": "image",
+      "data": {
+        "source": "item",
+        "path": ""
+      },
+      "alt": {
+        "source": "item",
+        "path": "title"
+      }
+    },
+    {
+      "id": "recommendation-highlights",
+      "type": "facts",
+      "data": {
+        "source": "item",
+        "path": "highlights"
+      },
+      "sensitive": true
+    }
+  ],
+  "roots": [
+    "layout",
+    "add-disclosure",
+    "recommendation-dialog",
+    "attribution"
+  ]
+}

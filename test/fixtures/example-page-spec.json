@@ -1,0 +1,452 @@
+{
+  "version": 2,
+  "providers": {
+    "example": {
+      "type": "runtime"
+    }
+  },
+  "resources": [
+    {
+      "id": "entries",
+      "provider": "example",
+      "operation": "list",
+      "requiredGrants": [
+        "storage:own"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "categoryId": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "subtitle": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "caption": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "fallbackLabel": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "issuerLogoUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tone": {
+                  "type": "string",
+                  "maxLength": 7,
+                  "enum": [
+                    "forest",
+                    "ocean",
+                    "plum",
+                    "gold",
+                    "neutral"
+                  ]
+                },
+                "badges": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "tone": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "forest",
+                          "ocean",
+                          "plum",
+                          "gold",
+                          "neutral"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "tone"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "imageUrl": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "highlights": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "facts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "value": {
+                        "type": "string",
+                        "maxLength": 8000
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 200
+                },
+                "productId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "editProductId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "identificationNotice": {
+                  "type": "string",
+                  "maxLength": 8000
+                },
+                "openedOn": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 8000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rewards": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "categoryId": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "additionalCategoryIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 8000
+                        },
+                        "maxItems": 100
+                      },
+                      "validFrom": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "validThrough": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "rate": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      "unit": {
+                        "type": "string",
+                        "maxLength": 7,
+                        "enum": [
+                          "percent",
+                          "x"
+                        ]
+                      },
+                      "cap": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "conditions": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "categoryId",
+                      "rate",
+                      "unit",
+                      "cap",
+                      "conditions"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "benefits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 8000
+                      },
+                      "categoryId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 8000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "description",
+                      "categoryId"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "removable": {
+                  "type": "boolean"
+                },
+                "customized": {
+                  "type": "boolean"
+                },
+                "destination": {
+                  "type": "string",
+                  "maxLength": 8000
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 200
+          },
+          "attribution": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "initialInput": {}
+    }
+  ],
+  "actions": [
+    {
+      "id": "save",
+      "provider": "example",
+      "operation": "save",
+      "access": "admin",
+      "requiredGrants": [
+        "storage:own"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 8000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "components": [
+    {
+      "id": "layout",
+      "type": "collection-detail",
+      "children": [
+        "entries",
+        "editor"
+      ]
+    },
+    {
+      "id": "entries",
+      "type": "collection",
+      "title": "Entries",
+      "resource": "entries",
+      "data": {
+        "source": "resource",
+        "path": "items",
+        "resource": "entries"
+      },
+      "emptyText": "No entries yet"
+    },
+    {
+      "id": "editor",
+      "type": "form",
+      "title": "Edit entry",
+      "action": "save",
+      "fields": [
+        {
+          "name": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true,
+          "value": {
+            "source": "selection",
+            "path": "title",
+            "resource": "entries"
+          }
+        }
+      ],
+      "resource": "entries",
+      "input": {
+        "id": {
+          "source": "selection",
+          "path": "id",
+          "resource": "entries"
+        }
+      }
+    }
+  ],
+  "roots": [
+    "layout"
+  ]
+}

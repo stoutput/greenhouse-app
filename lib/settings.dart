@@ -17,7 +17,7 @@ class CompanionSettings extends StatefulWidget {
     required this.onLockEnabled,
     required this.onSessionEnded,
     required this.defaultPage,
-    required this.cardsEnabled,
+    required this.defaultOptions,
     required this.onDefaultPage,
     super.key,
   });
@@ -29,7 +29,7 @@ class CompanionSettings extends StatefulWidget {
   final ValueChanged<ThemeMode> onTheme;
   final ValueChanged<bool> onSessionEnded;
   final String defaultPage;
-  final bool cardsEnabled;
+  final List<(String, String)> defaultOptions;
   final ValueChanged<String> onDefaultPage;
 
   @override
@@ -133,15 +133,13 @@ class _CompanionSettingsState extends State<CompanionSettings> {
           ),
         const SectionTitle('Navigation'),
         DropdownButtonFormField<String>(
-          initialValue: CompanionPage.resolveDefault(
-            widget.defaultPage,
-            cardsEnabled: widget.cardsEnabled,
-          ),
+          initialValue:
+              widget.defaultOptions.any((item) => item.$1 == widget.defaultPage)
+              ? widget.defaultPage
+              : CompanionPage.overview,
           decoration: const InputDecoration(labelText: 'Default page'),
           items: [
-            for (final (value, title) in CompanionPage.defaultOptions(
-              cardsEnabled: widget.cardsEnabled,
-            ))
+            for (final (value, title) in widget.defaultOptions)
               DropdownMenuItem(value: value, child: Text(title)),
           ],
           onChanged: (value) {

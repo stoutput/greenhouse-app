@@ -157,6 +157,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   bool prompting = false;
   bool methodError = false;
   bool backgrounded = false;
+  Completer<void>? resumed;
 
   @override
   void initState() {
@@ -172,6 +173,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     generation++;
+    if (resumed != null && !resumed!.isCompleted) resumed!.complete();
     WidgetsBinding.instance.removeObserver(this);
     pin.dispose();
     super.dispose();
@@ -188,6 +190,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       }
     } else if (state == AppLifecycleState.resumed) {
       foreground = true;
+      if (resumed != null && !resumed!.isCompleted) resumed!.complete();
       if (!prompting && !busy) {
         WidgetsBinding.instance.addPostFrameCallback((_) => checkMethod());
       }
@@ -266,6 +269,12 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       success = await widget.client.authenticateLocally();
     } finally {
       prompting = false;
+    }
+    if (!mounted || attempt != generation) return;
+    if (success && !foreground) {
+      resumed = Completer<void>();
+      await resumed!.future;
+      resumed = null;
     }
     if (!mounted || attempt != generation || !foreground) return;
     if (success) {

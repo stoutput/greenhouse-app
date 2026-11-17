@@ -87,6 +87,38 @@ void main() {
     },
   );
 
+  testWidgets('successful biometric result waits for the app to resume', (
+    tester,
+  ) async {
+    final pending = Completer<bool>();
+    final client = _Client()
+      ..deviceSupported = true
+      ..pendingAuthentication = pending;
+    var revealed = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LockScreen(
+          lock: AppLock(),
+          client: client,
+          setup: false,
+          onUnlocked: () => revealed = true,
+          onSignOut: () async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    pending.complete(true);
+    await tester.pump();
+    expect(revealed, isFalse);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(revealed, isTrue);
+    expect(client.localAttempts, 1);
+    client.dispose();
+  });
+
   testWidgets(
     'enrollment changes sign out before device or PIN authentication',
     (tester) async {

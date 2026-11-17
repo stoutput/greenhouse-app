@@ -1,4 +1,4 @@
-package app.greenhouse.greenhouse
+package app.stoutput.greenhouse
 
 import android.content.SharedPreferences
 import android.os.Build

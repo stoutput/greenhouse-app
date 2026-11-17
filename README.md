@@ -58,7 +58,7 @@ Settings → **Unlink device** revokes the device session when the instance is r
 
 ## Android push
 
-Register the Android app ID `app.greenhouse.greenhouse` in Firebase. Use values from that Android Firebase app to build:
+Register the Android app ID `app.stoutput.greenhouse` in Firebase. This ID replaces `app.greenhouse.greenhouse`; install the renamed app separately and sign in again. For push, update the GitHub Actions variables with values from the new Firebase Android app. Use those values to build locally:
 
 ```sh
 flutter build apk --debug \

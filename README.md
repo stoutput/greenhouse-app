@@ -29,6 +29,18 @@ Build a local development APK with `flutter build apk --debug`.
 
 ## GitHub releases
 
+Run **Android** manually from GitHub Actions to build on the home server. By
+default the run uploads the **greenhouse-debug-apk** artifact. Select `main` and
+enable **Build and publish a signed release from main** to publish a new app
+version using the repository signing secrets.
+
+Register a Linux x64 runner for this repository with access to `gh` and an
+Android SDK that has API 36, build tools 36.0.0, and NDK 28.2.13676358. The
+workflow reads `ANDROID_HOME` or uses `~/.cache/greenhouse-android/sdk`. Before
+enabling a runner on this public repository, require approval for all outside
+collaborators' fork workflows in GitHub's Actions settings.
+
+
 The Android workflow analyzes, tests, and builds the app on pull requests and pushes to `main`.
 When `main` contains a new version in `pubspec.yaml`, it publishes a signed
 `greenhouse-v<VERSION>.apk` and its SHA-256 checksum to GitHub Releases.

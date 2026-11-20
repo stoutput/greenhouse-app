@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Build and publish a signed release from main
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,7 +24,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["self-hosted", "Linux", "X64"]') || 'ubuntu-24.04' }}
     outputs:
       version: ${{ steps.release.outputs.version }}
     steps:
@@ -27,8 +32,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Require main for publication
+        if: inputs.publish_release && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Select main to publish a signed release."
+          exit 1
+
       - name: Check whether this version needs a release
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish_release)
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -55,6 +66,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Configure the home server Android SDK
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          sdk="${ANDROID_HOME:-$HOME/.cache/greenhouse-android/sdk}"
+          test -d "$sdk/platforms/android-36"
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          echo 'GRADLE_OPTS=-Dorg.gradle.jvmargs="-Xmx1200m -XX:MaxMetaspaceSize=512m -XX:ReservedCodeCacheSize=192m -XX:+UseSerialGC" -Dorg.gradle.workers.max=1 -Dorg.gradle.daemon=false' >> "$GITHUB_ENV"
+          echo 'ORG_GRADLE_PROJECT_kotlin.compiler.execution.strategy=in-process' >> "$GITHUB_ENV"
+
       - name: Set up Flutter 3.47.9
         run: |
           sdk="$RUNNER_TEMP/flutter"
@@ -71,6 +91,13 @@ jobs:
       - name: Build debug APK
         if: steps.release.outputs.version == ''
         run: flutter build apk --debug --no-pub
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.version == ''
+        with:
+          name: greenhouse-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
 
       - name: Build release APK
         if: steps.release.outputs.version != ''
@@ -135,15 +162,17 @@ jobs:
   publish:
     needs: build
     if: github.ref == 'refs/heads/main' && needs.build.outputs.version != ''
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["self-hosted", "Linux", "X64"]') || 'ubuntu-24.04' }}
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: signed-android-release
+          path: ${{ runner.temp }}/signed-android-release
 
       - name: Publish GitHub Release
+        working-directory: ${{ runner.temp }}/signed-android-release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}

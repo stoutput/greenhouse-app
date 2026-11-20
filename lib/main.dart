@@ -174,8 +174,13 @@ class _GreenHouseAppState extends State<GreenHouseApp>
   }
 
   Future<void> enableBiometrics() async {
+    // Secure storage can show its own prompt. Wait for the app lock to finish.
     final identity = owner;
-    if (identity == null || checkingBiometrics || client.hasBiometricSession) {
+    if (identity == null ||
+        locked ||
+        !foreground ||
+        checkingBiometrics ||
+        client.hasBiometricSession) {
       return;
     }
     setState(() {
@@ -186,6 +191,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
       final supported = await client.canUseBiometrics();
       if (!mounted || owner != identity) return;
       if (await enforceBiometricEnrollment()) return;
+      if (!mounted || owner != identity || locked || !foreground) return;
       final saved = !supported || await client.rememberWithBiometrics();
       if (saved && await enforceBiometricEnrollment()) return;
       if (mounted && owner == identity) {
@@ -279,10 +285,17 @@ class _GreenHouseAppState extends State<GreenHouseApp>
   }
 
   Future<void> refreshIdentity() async {
+    final previousOwner = owner;
     try {
       await client.validateSession();
       final identity = client.identity;
-      if (!mounted || identity == null) return;
+      if (!mounted ||
+          identity == null ||
+          owner != previousOwner ||
+          locked ||
+          checkingBiometrics) {
+        return;
+      }
       final oldScope = owner?.preferenceScope(client.origin);
       final newScope = identity.preferenceScope(client.origin);
       ThemeMode nextMode = mode;
@@ -307,7 +320,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
                 .firstOrNull ??
             ThemeMode.system;
       }
-      if (mounted) {
+      if (mounted && owner == previousOwner && !locked && !checkingBiometrics) {
         setState(() {
           owner = identity;
           mode = nextMode;
@@ -374,7 +387,9 @@ class _GreenHouseAppState extends State<GreenHouseApp>
                         !checkingEnrollment &&
                         !privacyCover)
                       const Positioned.fill(child: AmbientLighting()),
-                    if (owner != null && locked)
+                    if (owner != null && checkingBiometrics)
+                      const AuthenticationScreen()
+                    else if (owner != null && locked)
                       Overlay(
                         key: ValueKey(setupPin),
                         initialEntries: [
@@ -406,8 +421,7 @@ class _GreenHouseAppState extends State<GreenHouseApp>
                           ),
                         ],
                       )
-                    else if (owner != null &&
-                        (checkingBiometrics || checkingEnrollment))
+                    else if (owner != null && checkingEnrollment)
                       const AuthenticationScreen()
                     else if (owner != null && biometricSetupFailed)
                       AuthenticationScreen(onUnlock: enableBiometrics),

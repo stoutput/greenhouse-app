@@ -56,6 +56,35 @@ void main() {
     },
   );
 
+  testWidgets('device lock finishes before saving biometric sign-in', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    final validation = Completer<void>();
+    final client = _FixtureClient()
+      ..selected = Uri.parse('https://garden.example')
+      ..deviceLockValidation = validation;
+    addTearDown(client.dispose);
+    await tester.pumpWidget(GreenHouseApp(client: client));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextFormField).first,
+      'owner@example.test',
+    );
+    await tester.enterText(find.byType(TextFormField).last, 'example-password');
+    await tester.ensureVisible(find.text('Sign in'));
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+
+    expect(client.hasBiometricSession, isFalse);
+    validation.complete();
+    await tester.pumpAndSettle();
+
+    expect(client.hasBiometricSession, isTrue);
+    expect(find.text('Your financial picture'), findsOneWidget);
+  });
+
   testWidgets('a delayed Cards lookup does not override a selected page', (
     tester,
   ) async {
@@ -175,6 +204,7 @@ void main() {
       isTrue,
     );
     expect(find.text('Set an unlock PIN'), findsOneWidget);
+    expect(client.hasBiometricSession, isFalse);
     await tester.enterText(find.byType(TextField).last, '123456');
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
@@ -286,6 +316,7 @@ class _FixtureClient extends GreenhouseClient {
   Uri? selected;
   bool didUnlink = false;
   bool savedBiometrics = false;
+  Completer<void>? deviceLockValidation;
   @override
   bool get hasBiometricSession => savedBiometrics;
   @override
@@ -334,13 +365,15 @@ class _FixtureClient extends GreenhouseClient {
   }
 
   @override
-  Future<void> validateSession() async {}
+  Future<void> validateSession() async {
+    await deviceLockValidation?.future;
+  }
 
   @override
   Future<bool> canUseBiometrics() async => true;
 
   @override
-  Future<bool> hasDeviceLock() async => false;
+  Future<bool> hasDeviceLock() async => deviceLockValidation != null;
 
   @override
   Future<bool> disconnect() async {

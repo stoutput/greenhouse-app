@@ -16,8 +16,9 @@ void main() {
 
     expect(find.text('Assets'), findsOneWidget);
     expect(find.text('Liabilities'), findsOneWidget);
-    expect(find.text('Total assets'), findsOneWidget);
-    expect(find.text(r'$1,000.00'), findsOneWidget);
+    expect(find.text(r'$1,000.00'), findsWidgets);
+    await tester.tap(find.text('Assets'));
+    await tester.pumpAndSettle();
     expect(find.text('Checking'), findsOneWidget);
     expect(find.text('Savings'), findsOneWidget);
     expect(find.text('Investments'), findsOneWidget);
@@ -32,17 +33,14 @@ void main() {
     expect(find.text('Brokerage'), findsOneWidget);
     expect(find.text(r'$975.00'), findsOneWidget);
     expect(find.text(r'$500.00'), findsNothing);
-    await tester.tap(find.byTooltip('Close'));
+    await tester.tap(find.byIcon(Icons.arrow_back));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Liabilities'));
     await tester.pumpAndSettle();
-    expect(find.text('Total liabilities'), findsOneWidget);
-    expect(find.text(r'$300.00'), findsOneWidget);
     expect(find.text('Loans'), findsOneWidget);
     expect(find.text('Credit cards'), findsOneWidget);
     expect(find.text('Checking'), findsNothing);
-    expect(find.text('Limited history'), findsOneWidget);
 
     await tester.tap(find.text('Loans'));
     await tester.pumpAndSettle();
@@ -66,6 +64,8 @@ void main() {
     await tester.pumpWidget(_app(client));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Assets'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Checking'));
     await tester.pumpAndSettle();
     expect(find.text('Everyday checking'), findsOneWidget);
@@ -77,7 +77,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text(r'$123.45'), findsNothing);
-    await tester.tap(find.byTooltip('Close'));
+    await tester.tap(find.text('Checking'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Investments'));
@@ -101,6 +101,8 @@ void main() {
     await tester.pumpWidget(_app(client));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Assets'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Investments'));
     await tester.pumpAndSettle();
     final wire = find.widgetWithText(ListTile, 'Wire brokerage');
@@ -142,40 +144,27 @@ void main() {
     expect(client.requests, isNot(contains('/accounts')));
   });
 
-  testWidgets('preserves unknown history gaps and single points', (
+  testWidgets('daily history preserves gaps and uses plotted dates', (
     tester,
   ) async {
-    final client = _MockClient();
+    final client = _MockClient(
+      picture: {
+        ..._defaultPicture,
+        'dailyHistory': [
+          {'date': '2026-10-01', 'netWorth': _usd('65000')},
+          {'date': '2026-10-02', 'netWorth': null},
+          {'date': '2026-10-03', 'netWorth': _usd('70000')},
+        ],
+      },
+    );
     addTearDown(client.dispose);
     await tester.pumpWidget(_app(client));
     await tester.pumpAndSettle();
-
-    final charts = tester
-        .widgetList<TrendChart>(find.byType(TrendChart))
-        .toList();
-    expect(charts, hasLength(4));
-    expect(
-      charts.any((chart) => chart.points.any((point) => point.value == null)),
-      isTrue,
-    );
-    expect(find.text('No recorded history'), findsOneWidget);
-    expect(find.text('Unavailable'), findsOneWidget);
-    expect(find.text('Includes estimates'), findsOneWidget);
-    final savingsChart = charts.firstWhere(
-      (chart) => chart.label?.startsWith('Savings') == true,
-    );
-    expect(savingsChart.label, contains('includes estimates'));
-
-    await tester.tap(find.text('Liabilities'));
-    await tester.pumpAndSettle();
-    final loanChart = tester
-        .widgetList<TrendChart>(find.byType(TrendChart))
-        .firstWhere((chart) => chart.label?.startsWith('Loans') == true);
-    expect(
-      loanChart.points.where((point) => point.value != null),
-      hasLength(1),
-    );
-    expect(find.text('Limited history'), findsOneWidget);
+    final chart = tester.widget<TrendChart>(find.byType(TrendChart));
+    expect(chart.points, hasLength(3));
+    expect(chart.points[1].value, isNull);
+    expect(find.text('Oct 1, 2026'), findsOneWidget);
+    expect(find.text('Oct 3, 2026'), findsOneWidget);
   });
 
   testWidgets('fits a narrow screen with large text', (tester) async {

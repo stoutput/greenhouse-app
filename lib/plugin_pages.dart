@@ -1406,6 +1406,39 @@ class _PluginPageBodyState extends State<PluginPageBody> {
         rows.add((name, _display(row['value'] ?? row['text'] ?? item)));
       }
     }
+    final title = _text(component['title'], context);
+    if (title.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionTitle(title),
+          if (rows.isEmpty)
+            const Text('No rewards or benefits are listed.')
+          else
+            for (final row in rows)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Panel(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        row.$1,
+                        style: Theme.of(this.context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: Theme.of(this.context).colorScheme.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(row.$2),
+                    ],
+                  ),
+                ),
+              ),
+        ],
+      );
+    }
     if (rows.isEmpty) return const SizedBox.shrink();
     return Panel(
       child: Column(
@@ -1532,14 +1565,11 @@ class _PluginPageBodyState extends State<PluginPageBody> {
     _RenderContext context,
     String resourceId,
   ) {
-    final selected = resourceId.isEmpty
-        ? (items.contains(globalSelection) ? globalSelection : null)
-        : selectionByResource[resourceId];
     final textScale = MediaQuery.textScalerOf(this.context)
         .scale(1)
         .clamp(1.0, 2.0);
     final cardHeight = 168 * textScale;
-    final slotHeight = cardHeight - 14;
+    final slotHeight = cardHeight * .35;
     final reducedMotion = MediaQuery.disableAnimationsOf(this.context);
     if (!reducedMotion && _focusedCardId == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleFocus());
@@ -1557,19 +1587,21 @@ class _PluginPageBodyState extends State<PluginPageBody> {
             _scrollPosition = position;
             if (!reducedMotion) position?.addListener(_scheduleFocus);
           }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var index = 0; index < items.length; index++)
-                SizedBox(
-                  key: _cardKeys.putIfAbsent(
-                    _cardIdentity(resourceId, items[index]),
-                    GlobalKey.new,
-                  ),
-                  height: slotHeight,
-                  child: OverflowBox(
-                    maxHeight: cardHeight,
-                    alignment: Alignment.topCenter,
+          return SizedBox(
+            height: cardHeight + (items.length - 1) * slotHeight,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                for (var index = 0; index < items.length; index++)
+                  Positioned(
+                    top: index * slotHeight,
+                    left: 0,
+                    right: 0,
+                    height: cardHeight,
+                    key: _cardKeys.putIfAbsent(
+                      _cardIdentity(resourceId, items[index]),
+                      GlobalKey.new,
+                    ),
                     child: _walletCard(
                       byId,
                       component,
@@ -1584,22 +1616,8 @@ class _PluginPageBodyState extends State<PluginPageBody> {
                       reducedMotion: reducedMotion,
                     ),
                   ),
-                ),
-              const SizedBox(height: 14),
-              if (selected != null)
-                Panel(
-                  child: Row(
-                    children: [
-                      Expanded(child: _itemPreview(selected)),
-                      TextButton(
-                        onPressed: () =>
-                            _openDetail(byId, component, selected, resourceId),
-                        child: const Text('Details'),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -1619,53 +1637,88 @@ class _PluginPageBodyState extends State<PluginPageBody> {
   }) {
     final scale = focused && !reducedMotion ? 1.04 : 1.0;
     final lift = focused && !reducedMotion ? -15.0 : 0.0;
-    return Transform.translate(
+    final row = object(item);
+    final image = label(row['imageUrl'], '');
+    return AnimatedContainer(
       key: ValueKey('card-transform-${_cardIdentity(resourceId, item)}'),
-      offset: Offset(0, lift),
-      child: Transform.scale(
-        scale: scale,
-        alignment: Alignment.center,
-        child: Semantics(
-          button: true,
-          selected: selected,
-          label:
-              '${_itemTitle(item)}, card ${index + 1} of ${itemCountFor(resourceId)}',
-          child: GestureDetector(
-            onTap: () => _select(resourceId.isEmpty ? null : resourceId, item),
+      duration: reducedMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 180),
+      transform: Matrix4.translationValues(0, lift, 0)
+        ..scaleByDouble(scale, scale, 1, 1),
+      transformAlignment: Alignment.center,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label:
+            '${_itemTitle(item)}, card ${index + 1} of ${itemCountFor(resourceId)}',
+        child: GestureDetector(
+          onTap: () {
+            _select(resourceId.isEmpty ? null : resourceId, item);
+            _openDetail(byId, component, item, resourceId);
+          },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
             child: Container(
               height: height,
-              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
                 gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
                   colors: [
-                    _itemTone(item).withValues(alpha: .22),
-                    Theme.of(context).colorScheme.surfaceContainerHigh,
+                    _itemTone(item),
+                    _itemTone(item).withValues(alpha: .65),
                   ],
                 ),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(child: _itemPreview(item)),
-                      if (selected)
-                        Icon(
-                          Icons.check_circle,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                    ],
+                  if (image.startsWith('https://'))
+                    Image.network(
+                      image,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: .3),
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: .65),
+                        ],
+                      ),
+                    ),
                   ),
-                  const Spacer(),
-                  Text(
-                    '${index + 1} of ${itemCountFor(resourceId)}',
-                    style: Theme.of(context).textTheme.bodySmall,
+                  Positioned(
+                    top: 14,
+                    left: 16,
+                    right: 16,
+                    child: Text(
+                      _itemTitle(item),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 14,
+                    left: 16,
+                    right: 16,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (label(row['caption'], '').isNotEmpty)
+                          Text(
+                            label(row['caption'], ''),
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -1915,8 +1968,13 @@ class _PluginPageBodyState extends State<PluginPageBody> {
                       controller: scrollController,
                       padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
                       children: [
-                        if (!suppliedPreview) _itemPreview(selected ?? item),
-                        const SizedBox(height: 14),
+                        if (!suppliedPreview) ...[
+                          Text(
+                            _itemTitle(selected ?? item),
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          const SizedBox(height: 14),
+                        ],
                         for (final id in detailIds)
                           ..._componentDetail(byId, id, item, resourceId),
                       ],
@@ -3202,38 +3260,54 @@ class _Notice extends StatelessWidget {
   }
 }
 
-class _SheetHandle extends StatelessWidget {
+class _SheetHandle extends StatefulWidget {
   const _SheetHandle({this.onClose});
 
   final VoidCallback? onClose;
+
+  @override
+  State<_SheetHandle> createState() => _SheetHandleState();
+}
+
+class _SheetHandleState extends State<_SheetHandle> {
+  double dragDistance = 0;
 
   @override
   Widget build(BuildContext context) => Semantics(
     key: const ValueKey('close-plugin-sheet'),
     button: true,
     label: 'Close details',
-    child: InkWell(
-      onTap: onClose ?? () => Navigator.of(context).maybePop(),
-      child: SizedBox(
-        height: 52,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 48,
-              height: 5,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                borderRadius: BorderRadius.circular(99),
+    child: GestureDetector(
+      onVerticalDragStart: (_) => dragDistance = 0,
+      onVerticalDragUpdate: (details) => dragDistance += details.delta.dy,
+      onVerticalDragEnd: (details) {
+        if (dragDistance > 60 || (details.primaryVelocity ?? 0) > 200) {
+          (widget.onClose ?? () => Navigator.of(context).maybePop())();
+        }
+      },
+      child: InkWell(
+        onTap: widget.onClose ?? () => Navigator.of(context).maybePop(),
+        child: SizedBox(
+          height: 52,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 48,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  borderRadius: BorderRadius.circular(99),
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Icon(
-              Icons.keyboard_arrow_down,
-              size: 20,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ],
+              const SizedBox(height: 6),
+              Icon(
+                Icons.keyboard_arrow_down,
+                size: 20,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
         ),
       ),
     ),

@@ -1737,9 +1737,6 @@
       "children": [
         "wallet",
         "details"
-      ],
-      "emptyChildren": [
-        "purchase-picker"
       ]
     },
     {
@@ -1763,35 +1760,13 @@
         "path": "id",
         "resource": "wallet"
       },
-      "title": {
-        "source": "selection",
-        "path": "title",
-        "resource": "wallet"
-      },
       "children": [
-        "image",
+        "highlights",
         "facts",
         "identification-notice",
         "transactions",
-        "identify",
-        "benefits",
-        "reset",
-        "remove"
+        "edit-disclosure"
       ]
-    },
-    {
-      "id": "image",
-      "type": "image",
-      "data": {
-        "source": "selection",
-        "path": "",
-        "resource": "wallet"
-      },
-      "alt": {
-        "source": "selection",
-        "path": "title",
-        "resource": "wallet"
-      }
     },
     {
       "id": "facts",
@@ -2021,16 +1996,6 @@
       ]
     },
     {
-      "id": "attribution",
-      "type": "notice",
-      "tone": "info",
-      "text": {
-        "source": "resource",
-        "path": "attribution",
-        "resource": "wallet"
-      }
-    },
-    {
       "id": "purchase-picker",
       "type": "picker",
       "label": "What are you purchasing today?",
@@ -2100,12 +2065,33 @@
         "path": "highlights"
       },
       "sensitive": true
+    },
+    {
+      "id": "highlights",
+      "type": "facts",
+      "title": "Rewards and benefits",
+      "data": {
+        "source": "selection",
+        "path": "highlights"
+      },
+      "sensitive": true
+    },
+    {
+      "id": "edit-disclosure",
+      "type": "disclosure",
+      "title": "Manage card",
+      "children": [
+        "identify",
+        "benefits",
+        "reset",
+        "remove"
+      ]
     }
   ],
   "roots": [
+    "purchase-picker",
     "layout",
     "add-disclosure",
-    "recommendation-dialog",
-    "attribution"
+    "recommendation-dialog"
   ]
 }

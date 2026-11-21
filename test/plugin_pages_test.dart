@@ -323,6 +323,10 @@ _CanonicalTransport _cardsTransport() => _CanonicalTransport(
             'badges': [
               {'label': 'Override', 'tone': 'gold'},
             ],
+            'highlights': [
+              {'label': '3% Groceries', 'value': 'Eligible purchases'},
+              {'label': 'Travel credit', 'value': 'Annual credit'},
+            ],
             'identificationNotice': 'Saved identification',
             'editProductId': null,
           },
@@ -395,8 +399,12 @@ Future<void> _openWalletEditor(
   await tester.pumpAndSettle();
   await tester.tap(find.text('Editable card'));
   await tester.pumpAndSettle();
-  await _reveal(tester, find.text('Details'));
-  await tester.tap(find.text('Details'));
+  await tester.scrollUntilVisible(
+    find.text('Manage card'),
+    160,
+    scrollable: _sheetScroll,
+  );
+  await tester.tap(_sheet(find.text('Manage card')));
   await tester.pumpAndSettle();
 }
 
@@ -416,13 +424,12 @@ Future<void> _openCard(
   await tester.pumpAndSettle();
   await tester.tap(find.text('Private card'));
   await tester.pumpAndSettle();
-  await _reveal(tester, find.text('Details'));
-  await tester.tap(find.text('Details'));
-  await tester.pumpAndSettle();
   expect(find.byType(DraggableScrollableSheet), findsOneWidget);
-  expect(_sheet(find.text('Network •••• 1234')), findsOneWidget);
-  expect(_sheet(find.text('Override')), findsOneWidget);
-  expect(_sheet(find.text('Issuer')), findsOneWidget);
+  expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+  expect(_sheet(find.text('Private card')), findsOneWidget);
+  expect(_sheet(find.text('Rewards and benefits')), findsOneWidget);
+  expect(_sheet(find.text('3% Groceries')), findsOneWidget);
+  expect(_sheet(find.text('Travel credit')), findsOneWidget);
 }
 
 void main() {
@@ -668,15 +675,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Card 1'), findsWidgets);
     expect(find.text('Card 6'), findsOneWidget);
-    expect(find.text('1 of 6'), findsOneWidget);
-    expect(find.text('6 of 6'), findsOneWidget);
+    expect(find.text('Details'), findsNothing);
 
     await _reveal(tester, find.text('Card 6'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Card 6').first);
     await tester.pumpAndSettle();
-    await _reveal(tester, find.text('Details'));
-    await tester.tap(find.text('Details'));
+    await tester.scrollUntilVisible(
+      find.text('Manage card'),
+      160,
+      scrollable: _sheetScroll,
+    );
+    await tester.tap(_sheet(find.text('Manage card')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('Card details'),
@@ -709,7 +719,13 @@ void main() {
       await _reveal(tester, find.text('Private card'));
       await tester.tap(find.text('Private card'));
       await tester.pumpAndSettle();
-      expect(find.text('Private card'), findsNWidgets(2));
+      expect(_sheet(find.text('Private card')), findsOneWidget);
+      await tester.drag(
+        find.byKey(const ValueKey('close-plugin-sheet')),
+        const Offset(0, 120),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
       expect(find.text('Groceries'), findsNothing);
       expect(find.text('Card name'), findsNothing);
       await _openPurchaseChoices(tester);
@@ -749,7 +765,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Recommended card'), findsNothing);
       expect(find.byType(DraggableScrollableSheet), findsNothing);
-      expect(find.text('Private card'), findsNWidgets(2));
+      expect(find.text('Private card'), findsOneWidget);
       await _openPurchaseChoices(tester);
       expect(tester.widget<TextField>(search).controller?.text, '');
       await tester.tap(find.byTooltip('Close choices'));
@@ -942,8 +958,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Card 1').first);
     await tester.pumpAndSettle();
-    await _reveal(tester, find.text('Details'));
-    await tester.tap(find.text('Details'));
+    await tester.scrollUntilVisible(
+      find.text('Manage card'),
+      160,
+      scrollable: _sheetScroll,
+    );
+    await tester.tap(_sheet(find.text('Manage card')));
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
@@ -1043,8 +1063,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Two-row card'));
       await tester.pumpAndSettle();
-      await _reveal(tester, find.text('Details'));
-      await tester.tap(find.text('Details'));
+      await tester.scrollUntilVisible(
+        find.text('Manage card'),
+        160,
+        scrollable: _sheetScroll,
+      );
+      await tester.tap(_sheet(find.text('Manage card')));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('Rewards and benefits override'),
@@ -1400,8 +1424,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Card 1').first);
     await tester.pumpAndSettle();
-    await _reveal(tester, find.text('Details'));
-    await tester.tap(find.text('Details'));
+    await tester.scrollUntilVisible(
+      find.text('Manage card'),
+      160,
+      scrollable: _sheetScroll,
+    );
+    await tester.tap(_sheet(find.text('Manage card')));
     await tester.pumpAndSettle();
     await _reveal(tester, _sheet(find.text('None')).first);
     await tester.pumpAndSettle();
@@ -1603,8 +1631,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Private card'));
       await tester.pumpAndSettle();
-      await _reveal(tester, find.text('Details'));
-      await tester.tap(find.text('Details'));
+      await tester.scrollUntilVisible(
+        find.text('Manage card'),
+        160,
+        scrollable: _sheetScroll,
+      );
+      await tester.tap(_sheet(find.text('Manage card')));
       await tester.pumpAndSettle();
       final opened = find.byKey(const ValueKey('field-identify-openedOn'));
       await tester.scrollUntilVisible(opened, 160, scrollable: _sheetScroll);
@@ -1674,12 +1706,14 @@ void main() {
         await _reveal(tester, find.text(title).first);
         await tester.tap(find.text(title).first);
         await tester.pumpAndSettle();
-        expect(find.text(title), findsNWidgets(2));
-        expect(find.byType(DraggableScrollableSheet), findsNothing);
+        expect(_sheet(find.text(title)), findsOneWidget);
+        expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('close-plugin-sheet')));
+        await tester.pumpAndSettle();
       }
       final transforms = find.byWidgetPredicate(
         (widget) =>
-            widget is Transform &&
+            widget is AnimatedContainer &&
             widget.key is ValueKey<String> &&
             (widget.key as ValueKey<String>).value.startsWith(
               'card-transform-',
@@ -1687,16 +1721,17 @@ void main() {
       );
       expect(
         tester
-            .widgetList<Transform>(transforms)
-            .any((widget) => widget.transform.getTranslation().y == -15),
+            .widgetList<AnimatedContainer>(transforms)
+            .any((widget) => widget.transform!.getTranslation().y == -15),
         isTrue,
       );
       await tester.pumpWidget(_body(transport, reducedMotion: true));
       await tester.pumpAndSettle();
-      for (final transform in tester.widgetList<Transform>(transforms)) {
-        expect(transform.transform.getTranslation().y, 0);
-        final scale = transform.child! as Transform;
-        expect(scale.transform.getMaxScaleOnAxis(), 1);
+      for (final transform in tester.widgetList<AnimatedContainer>(
+        transforms,
+      )) {
+        expect(transform.transform!.getTranslation().y, 0);
+        expect(transform.transform!.getMaxScaleOnAxis(), 1);
       }
       expect(tester.binding.hasScheduledFrame, isFalse);
       expect(tester.takeException(), isNull);

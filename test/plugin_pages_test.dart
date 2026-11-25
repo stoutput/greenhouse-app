@@ -1662,6 +1662,75 @@ void main() {
     },
   );
 
+  testWidgets(
+    'scrolling progressively lifts and settles each overlapping card',
+    (tester) async {
+      final transport = _CanonicalTransport(
+        spec: _fixture('cards-page-spec.json'),
+        resources: {
+          'wallet': PluginResourceState(
+            data: {
+              'items': [
+                for (var i = 0; i < 12; i++)
+                  {'id': 'card-$i', 'title': 'Card $i'},
+              ],
+              'total': 12,
+              'hasMore': false,
+            },
+            revision: 'w1',
+          ),
+        },
+      );
+      await tester.pumpWidget(_body(transport));
+      await tester.pumpAndSettle();
+      final fifth = find.byKey(const ValueKey('card-transform-wallet:card-5'));
+      final sixth = find.byKey(const ValueKey('card-transform-wallet:card-6'));
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      final spacing = tester.getSize(fifth).height * .35;
+      final target =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio / 2;
+      final start =
+          position.pixels + tester.getTopLeft(fifth).dy + spacing / 2 - target;
+      Future<void> scrollTo(double offset) async {
+        position.jumpTo(start + offset);
+        await tester.pump();
+        await tester.pump();
+      }
+
+      double lift(Finder card) =>
+          -tester.widget<Transform>(card).transform.getTranslation().y;
+      double informationOpacity(Finder card) => tester
+          .widget<Opacity>(
+            find.descendant(of: card, matching: find.byType(Opacity)).first,
+          )
+          .opacity;
+      await scrollTo(0);
+      expect(lift(fifth), closeTo(12, .2));
+      expect(informationOpacity(fifth), closeTo(1, .02));
+      expect(lift(sixth), closeTo(0, .2));
+      await scrollTo(spacing * .25);
+      expect(lift(fifth), closeTo(6, .2));
+      expect(informationOpacity(fifth), closeTo(.5, .02));
+      expect(lift(sixth), closeTo(0, .2));
+      await scrollTo(spacing * .5);
+      expect(lift(fifth), closeTo(0, .2));
+      expect(lift(sixth), closeTo(0, .2));
+      await scrollTo(spacing * .75);
+      expect(lift(fifth), closeTo(0, .2));
+      expect(lift(sixth), closeTo(6, .2));
+    },
+  );
+
+  test('card focus rises and falls before the next card lifts', () {
+    expect(cardStackFocus(0, 100), 1);
+    expect(cardStackFocus(25, 100), .5);
+    expect(cardStackFocus(50, 100), 0);
+    expect(cardStackFocus(75, 100), 0);
+    expect(cardStackFocus(75 - 100, 100), .5);
+  });
+
   test('all client page operations advertise mobile capabilities', () async {
     final client = _UiClient(_cardsTransport());
     addTearDown(client.dispose);
@@ -1713,7 +1782,7 @@ void main() {
       }
       final transforms = find.byWidgetPredicate(
         (widget) =>
-            widget is AnimatedContainer &&
+            widget is Transform &&
             widget.key is ValueKey<String> &&
             (widget.key as ValueKey<String>).value.startsWith(
               'card-transform-',
@@ -1721,17 +1790,15 @@ void main() {
       );
       expect(
         tester
-            .widgetList<AnimatedContainer>(transforms)
-            .any((widget) => widget.transform!.getTranslation().y == -15),
+            .widgetList<Transform>(transforms)
+            .any((widget) => widget.transform.getTranslation().y < 0),
         isTrue,
       );
       await tester.pumpWidget(_body(transport, reducedMotion: true));
       await tester.pumpAndSettle();
-      for (final transform in tester.widgetList<AnimatedContainer>(
-        transforms,
-      )) {
-        expect(transform.transform!.getTranslation().y, 0);
-        expect(transform.transform!.getMaxScaleOnAxis(), 1);
+      for (final transform in tester.widgetList<Transform>(transforms)) {
+        expect(transform.transform.getTranslation().y, 0);
+        expect(transform.transform.getMaxScaleOnAxis(), 1);
       }
       expect(tester.binding.hasScheduledFrame, isFalse);
       expect(tester.takeException(), isNull);

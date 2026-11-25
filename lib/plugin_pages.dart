@@ -36,6 +36,12 @@ Map<String, String> get _negotiation => {
   'surface': 'mobile',
 };
 
+/// Emphasizes one card at a time, returning to rest between adjacent cards.
+double cardStackFocus(double distance, double spacing) {
+  if (spacing <= 0) return 0;
+  return (1 - 2 * distance.abs() / spacing).clamp(0.0, 1.0);
+}
+
 List<Json> pluginItems(Object? data) {
   if (data is List) return objects(data);
   if (data is Map) return objects(data['items']);
@@ -516,7 +522,7 @@ class _PluginPageBodyState extends State<PluginPageBody> {
   bool _active = true;
   final Map<String, GlobalKey> _cardKeys = {};
   ScrollPosition? _scrollPosition;
-  String? _focusedCardId;
+  final Map<String, double> _cardFocus = {};
   bool _focusScheduled = false;
 
   bool get readOnly => widget.roleReadOnly || document?.readOnly == true;
@@ -574,7 +580,7 @@ class _PluginPageBodyState extends State<PluginPageBody> {
     querying.clear();
     appending.clear();
     _cardKeys.clear();
-    _focusedCardId = null;
+    _cardFocus.clear();
     _scrollPosition?.removeListener(_scheduleFocus);
     _scrollPosition = null;
     _closeOverlays();
@@ -1571,7 +1577,7 @@ class _PluginPageBodyState extends State<PluginPageBody> {
     final cardHeight = 168 * textScale;
     final slotHeight = cardHeight * .35;
     final reducedMotion = MediaQuery.disableAnimationsOf(this.context);
-    if (!reducedMotion && _focusedCardId == null) {
+    if (!reducedMotion && _cardFocus.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleFocus());
     }
     return NotificationListener<ScrollNotification>(
@@ -1598,22 +1604,28 @@ class _PluginPageBodyState extends State<PluginPageBody> {
                     left: 0,
                     right: 0,
                     height: cardHeight,
-                    key: _cardKeys.putIfAbsent(
-                      _cardIdentity(resourceId, items[index]),
-                      GlobalKey.new,
-                    ),
-                    child: _walletCard(
-                      byId,
-                      component,
-                      items[index],
-                      index,
-                      cardHeight,
-                      resourceId,
-                      selected: _isSelected(resourceId, items[index]),
-                      focused:
-                          _focusedCardId ==
-                          _cardIdentity(resourceId, items[index]),
-                      reducedMotion: reducedMotion,
+                    child: SizedBox(
+                      key: _cardKeys.putIfAbsent(
+                        _cardIdentity(resourceId, items[index]),
+                        GlobalKey.new,
+                      ),
+                      child: _walletCard(
+                        byId,
+                        component,
+                        items[index],
+                        index,
+                        cardHeight,
+                        resourceId,
+                        selected: _isSelected(resourceId, items[index]),
+                        focus: reducedMotion
+                            ? 0
+                            : (_cardFocus[_cardIdentity(
+                                    resourceId,
+                                    items[index],
+                                  )] ??
+                                  0),
+                        reducedMotion: reducedMotion,
+                      ),
                     ),
                   ),
               ],
@@ -1632,21 +1644,18 @@ class _PluginPageBodyState extends State<PluginPageBody> {
     double height,
     String resourceId, {
     required bool selected,
-    required bool focused,
+    required double focus,
     required bool reducedMotion,
   }) {
-    final scale = focused && !reducedMotion ? 1.04 : 1.0;
-    final lift = focused && !reducedMotion ? -15.0 : 0.0;
+    final scale = 1 + .025 * focus;
+    final lift = -12.0 * focus;
     final row = object(item);
     final image = label(row['imageUrl'], '');
-    return AnimatedContainer(
+    return Transform(
       key: ValueKey('card-transform-${_cardIdentity(resourceId, item)}'),
-      duration: reducedMotion
-          ? Duration.zero
-          : const Duration(milliseconds: 180),
       transform: Matrix4.translationValues(0, lift, 0)
         ..scaleByDouble(scale, scale, 1, 1),
-      transformAlignment: Alignment.center,
+      alignment: Alignment.center,
       child: Semantics(
         button: true,
         selected: selected,
@@ -1692,32 +1701,48 @@ class _PluginPageBodyState extends State<PluginPageBody> {
                     ),
                   ),
                   Positioned(
-                    top: 14,
-                    left: 16,
-                    right: 16,
-                    child: Text(
-                      _itemTitle(item),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                    top: 8,
+                    left: 12,
+                    right: 12,
+                    child: Opacity(
+                      opacity: reducedMotion ? 1 : focus,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: .78),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _itemTitle(item),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (_itemSubtitle(item).isNotEmpty ||
+                                label(row['caption'], '').isNotEmpty)
+                              Text(
+                                _itemSubtitle(item).isNotEmpty
+                                    ? _itemSubtitle(item)
+                                    : label(row['caption'], ''),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 14,
-                    left: 16,
-                    right: 16,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (label(row['caption'], '').isNotEmpty)
-                          Text(
-                            label(row['caption'], ''),
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                      ],
                     ),
                   ),
                 ],
@@ -1863,20 +1888,26 @@ class _PluginPageBodyState extends State<PluginPageBody> {
       if (!mounted) return;
       if (MediaQuery.disableAnimationsOf(context)) return;
       final center = MediaQuery.sizeOf(context).height / 2;
-      String? best;
-      var bestDistance = double.infinity;
+      final next = <String, double>{};
       for (final entry in _cardKeys.entries) {
         final box = entry.value.currentContext?.findRenderObject();
         if (box is! RenderBox || !box.attached) continue;
+        final spacing = box.size.height * .35;
         final position = box.localToGlobal(Offset.zero);
-        final distance = (position.dy + box.size.height / 2 - center).abs();
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          best = entry.key;
-        }
+        next[entry.key] = cardStackFocus(
+          position.dy + spacing / 2 - center,
+          spacing,
+        );
       }
-      if (best != null && best != _focusedCardId) {
-        setState(() => _focusedCardId = best);
+      if (next.length != _cardFocus.length ||
+          next.entries.any(
+            (entry) => (_cardFocus[entry.key] ?? -1) != entry.value,
+          )) {
+        setState(() {
+          _cardFocus
+            ..clear()
+            ..addAll(next);
+        });
       }
     });
   }

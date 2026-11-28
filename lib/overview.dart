@@ -35,20 +35,7 @@ class Overview extends StatelessWidget {
           const SizedBox(height: 16),
           _NetWorth(client, picture),
           const SectionTitle('Cash flow'),
-          Panel(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: Metric('Income', money(summary['income']))),
-                Expanded(
-                  child: Metric(
-                    'Posted spending',
-                    money(summary['postedSpending']),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _CashFlow(summary: summary, month: now),
           SectionTitle(
             'Recent activity',
             action: TextButton(
@@ -80,6 +67,118 @@ class Overview extends StatelessWidget {
   }
 }
 
+class _CashFlow extends StatelessWidget {
+  const _CashFlow({required this.summary, required this.month});
+  final Json summary;
+  final DateTime month;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final income = minor(summary['income']);
+    final expense = minor(summary['postedSpending']);
+    final sameCurrency =
+        object(summary['income'])['currency'] ==
+        object(summary['postedSpending'])['currency'];
+    final pending = minor(summary['pendingForecast']);
+    Widget metric(String title, Object? value, IconData icon) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 17, color: theme.colorScheme.primary),
+            const SizedBox(width: 4),
+            Text(title, style: theme.textTheme.bodySmall),
+          ],
+        ),
+        const SizedBox(height: 5),
+        Text(money(value), style: theme.textTheme.titleMedium),
+      ],
+    );
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            DateFormat.yMMMM().format(month),
+            style: theme.textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Posted transactions · transfers excluded',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: metric(
+                  'Income',
+                  summary['income'],
+                  Icons.south_east_rounded,
+                ),
+              ),
+              Expanded(
+                child: metric(
+                  'Expenses',
+                  summary['postedSpending'],
+                  Icons.north_east_rounded,
+                ),
+              ),
+            ],
+          ),
+          if (income != null && expense != null && sameCurrency) ...[
+            const Divider(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Net cash flow',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+                Text(
+                  money({
+                    'amount': (income - expense).toString(),
+                    'currency': object(summary['income'])['currency'],
+                  }),
+                  style: theme.textTheme.titleSmall,
+                ),
+              ],
+            ),
+          ],
+          if (pending != null && pending > BigInt.zero) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Pending expenses',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+                Text(
+                  money(summary['pendingForecast']),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ],
+          if (income == null &&
+              summary['incomeUnavailableReason'] is String) ...[
+            const SizedBox(height: 8),
+            Text(
+              summary['incomeUnavailableReason'] as String,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _NetWorth extends StatefulWidget {
   const _NetWorth(this.client, this.picture);
   final GreenhouseClient client;
@@ -89,9 +188,62 @@ class _NetWorth extends StatefulWidget {
   State<_NetWorth> createState() => _NetWorthState();
 }
 
+List<TrendPoint> _sideHistory(List<Json> categories, String side) {
+  final selected = categories
+      .where((category) => category['side'] == side)
+      .toList();
+  final dates = <String>{
+    for (final category in selected)
+      for (final point in objects(category['history']))
+        if (point['date'] is String) point['date'] as String,
+  }.toList()..sort();
+  final latest = <String, Json>{};
+  return [
+    for (final date in dates)
+      if (DateTime.tryParse(date) case final parsed?)
+        () {
+          final todays = <String, Json>{};
+          for (final category in selected) {
+            final id = label(category['id'], '');
+            for (final point in objects(category['history'])) {
+              if (point['date'] == date) {
+                todays[id] = point;
+                if (point['estimated'] != true) latest[id] = point;
+                break;
+              }
+            }
+          }
+          final values = [
+            for (final category in selected)
+              minor(
+                (todays[label(category['id'], '')] ??
+                    latest[label(category['id'], '')])?['total'],
+              ),
+          ];
+          final known = values.whereType<BigInt>();
+          return TrendPoint(
+            parsed,
+            known.isEmpty
+                ? null
+                : known
+                      .fold<BigInt>(BigInt.zero, (sum, value) => sum + value)
+                      .toDouble(),
+          );
+        }(),
+  ];
+}
+
 class _NetWorthState extends State<_NetWorth> {
   String? side;
   String? selectedId;
+  double horizontalDrag = 0;
+
+  void _showSide(String? next) {
+    setState(() {
+      side = next;
+      selectedId = null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +252,7 @@ class _NetWorthState extends State<_NetWorth> {
     final picture = widget.picture;
     final daily = picture['dailyHistory'] is List;
     final history = objects(picture[daily ? 'dailyHistory' : 'history']);
-    final points = [
+    final netWorthPoints = [
       for (final point in history)
         if (DateTime.tryParse(
               label(daily ? point['date'] : '${point['month']}-01', ''),
@@ -108,143 +260,232 @@ class _NetWorthState extends State<_NetWorth> {
             case final date?)
           TrendPoint(date, minor(point['netWorth'])?.toDouble()),
     ];
-    final hasHistory = points.any((point) => point.value != null);
     final breakdown = object(picture['breakdown']);
     final categories = objects(breakdown['categories']);
     final hasBreakdown = picture['breakdown'] != null;
+    final points = side == null
+        ? netWorthPoints
+        : _sideHistory(categories, side!);
+    final hasHistory = points.any((point) => point.value != null);
     final shown = categories
         .where((category) => category['side'] == side)
         .toList();
     final selected = shown
         .where((category) => category['id'] == selectedId)
         .firstOrNull;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.alphaBlend(
-              colors.primary.withValues(alpha: .16),
+    return GestureDetector(
+      key: const ValueKey('growth-trajectory'),
+      onHorizontalDragStart: (_) => horizontalDrag = 0,
+      onHorizontalDragUpdate: (details) => horizontalDrag += details.delta.dx,
+      onHorizontalDragEnd: (_) {
+        if (!hasBreakdown || horizontalDrag.abs() < 45) return;
+        final panels = <String?>['assets', null, 'liabilities'];
+        final index = panels.indexOf(side);
+        _showSide(panels[(index + (horizontalDrag < 0 ? 1 : -1)).clamp(0, 2)]);
+      },
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.alphaBlend(
+                colors.primary.withValues(alpha: .16),
+                colors.surfaceContainer,
+              ),
               colors.surfaceContainer,
+            ],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: colors.outlineVariant),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Eyebrow(side == null ? 'Net worth' : 'Net balance'),
+            const SizedBox(height: 6),
+            Text(
+              money(side == null ? picture['netWorth'] : breakdown[side]),
+              style: theme.textTheme.displaySmall,
             ),
-            colors.surfaceContainer,
+            const SizedBox(height: 9),
+            if (hasHistory)
+              TrendChart(
+                points,
+                color: colors.primary,
+                label: side == null
+                    ? 'Net worth history'
+                    : '${side == 'assets' ? 'Assets' : 'Liabilities'} history',
+                height: 82,
+              )
+            else
+              const SizedBox(
+                height: 82,
+                child: Center(
+                  child: Text(
+                    'Your trend will appear as balance history builds',
+                  ),
+                ),
+              ),
+            SizedBox(
+              height: 24,
+              child: Row(
+                children: [
+                  if (points.isNotEmpty)
+                    Expanded(
+                      child: Text(
+                        DateFormat.yMMMd().format(points.first.date),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                  if (points.length > 1 &&
+                      points.first.date != points.last.date)
+                    Expanded(
+                      child: Text(
+                        DateFormat.yMMMd().format(points.last.date),
+                        textAlign: TextAlign.end,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (hasBreakdown) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 48,
+                child: side == null
+                    ? null
+                    : TextButton.icon(
+                        onPressed: () => _showSide(null),
+                        icon: const Icon(Icons.arrow_back),
+                        label: Semantics(
+                          label: 'Back to assets and liabilities',
+                          child: Text(
+                            side == 'assets' ? 'Assets' : 'Liabilities',
+                          ),
+                        ),
+                      ),
+              ),
+              IndexedStack(
+                index: <String?>['assets', null, 'liabilities'].indexOf(side),
+                children: [
+                  for (final panel in <String?>['assets', null, 'liabilities'])
+                    SegmentedBar(
+                      selectedId: panel == side ? selectedId : null,
+                      segments:
+                          (panel == null
+                                  ? [
+                                      {
+                                        'id': 'assets',
+                                        'label': 'Assets',
+                                        'total': breakdown['assets'],
+                                      },
+                                      {
+                                        'id': 'liabilities',
+                                        'label': 'Liabilities',
+                                        'total': breakdown['liabilities'],
+                                      },
+                                    ]
+                                  : categories.where(
+                                      (category) => category['side'] == panel,
+                                    ))
+                              .map(
+                                (segment) => BalanceSegment(
+                                  id: label(segment['id'], ''),
+                                  label: label(segment['label'], ''),
+                                  value: minor(segment['total']),
+                                  amount: money(segment['total']),
+                                ),
+                              )
+                              .toList(),
+                      onSelect: (id) {
+                        if (panel == null) {
+                          _showSide(id);
+                        } else {
+                          setState(
+                            () => selectedId = selectedId == id ? null : id,
+                          );
+                        }
+                      },
+                    ),
+                ],
+              ),
+              SizedBox(
+                height: 36,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (final panel in <String?>[
+                      'assets',
+                      null,
+                      'liabilities',
+                    ])
+                      Semantics(
+                        button: true,
+                        selected: side == panel,
+                        label: panel == null
+                            ? 'Combined balances'
+                            : panel == 'assets'
+                            ? 'Asset categories'
+                            : 'Liability categories',
+                        child: InkWell(
+                          onTap: () => _showSide(panel),
+                          borderRadius: BorderRadius.circular(20),
+                          child: SizedBox(
+                            width: 36,
+                            height: 36,
+                            child: Center(
+                              child: Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: side == panel
+                                      ? colors.primary
+                                      : colors.onSurfaceVariant.withValues(
+                                          alpha: .4,
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (side != null && shown.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('No accounts'),
+                ),
+              if (selected != null)
+                _CategoryAccounts(
+                  key: ValueKey(selected['id']),
+                  client: widget.client,
+                  accountIds:
+                      (selected['accountIds'] as List?)
+                          ?.whereType<String>()
+                          .toSet() ??
+                      const <String>{},
+                ),
+            ] else ...[
+              const SizedBox(height: 14),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: Metric('Cash', money(picture['cash']))),
+                  Expanded(
+                    child: Metric('Investments', money(picture['investments'])),
+                  ),
+                  Expanded(child: Metric('Debt', money(picture['debt']))),
+                ],
+              ),
+            ],
           ],
         ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colors.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Eyebrow('Net worth'),
-          const SizedBox(height: 6),
-          Text(money(picture['netWorth']), style: theme.textTheme.displaySmall),
-          if (hasHistory) ...[
-            const SizedBox(height: 9),
-            TrendChart(
-              points,
-              color: colors.primary,
-              label: 'Net worth history',
-              height: 82,
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    DateFormat.yMMMd().format(points.first.date),
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ),
-                if (points.first.date != points.last.date)
-                  Expanded(
-                    child: Text(
-                      DateFormat.yMMMd().format(points.last.date),
-                      textAlign: TextAlign.end,
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ),
-              ],
-            ),
-          ],
-          if (hasBreakdown) ...[
-            const SizedBox(height: 16),
-            if (side != null)
-              TextButton.icon(
-                onPressed: () => setState(() {
-                  side = null;
-                  selectedId = null;
-                }),
-                icon: const Icon(Icons.arrow_back),
-                label: Semantics(
-                  label: 'Back to assets and liabilities',
-                  child: Text(side == 'assets' ? 'Assets' : 'Liabilities'),
-                ),
-              ),
-            SegmentedBar(
-              selectedId: selectedId,
-              segments:
-                  (side == null
-                          ? [
-                              {
-                                'id': 'assets',
-                                'label': 'Assets',
-                                'total': breakdown['assets'],
-                              },
-                              {
-                                'id': 'liabilities',
-                                'label': 'Liabilities',
-                                'total': breakdown['liabilities'],
-                              },
-                            ]
-                          : shown)
-                      .map(
-                        (segment) => BalanceSegment(
-                          id: label(segment['id'], ''),
-                          label: label(segment['label'], ''),
-                          value: minor(segment['total']),
-                          amount: money(segment['total']),
-                        ),
-                      )
-                      .toList(),
-              onSelect: (id) => setState(() {
-                if (side == null) {
-                  side = id;
-                } else {
-                  selectedId = selectedId == id ? null : id;
-                }
-              }),
-            ),
-            if (side != null && shown.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('No accounts'),
-              ),
-            if (selected != null)
-              _CategoryAccounts(
-                key: ValueKey(selected['id']),
-                client: widget.client,
-                accountIds:
-                    (selected['accountIds'] as List?)
-                        ?.whereType<String>()
-                        .toSet() ??
-                    const <String>{},
-              ),
-          ] else ...[
-            const SizedBox(height: 14),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: Metric('Cash', money(picture['cash']))),
-                Expanded(
-                  child: Metric('Investments', money(picture['investments'])),
-                ),
-                Expanded(child: Metric('Debt', money(picture['debt']))),
-              ],
-            ),
-          ],
-        ],
       ),
     );
   }

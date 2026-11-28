@@ -29,7 +29,7 @@ class TransactionTile extends StatelessWidget {
         backgroundColor: color.withValues(alpha: .12),
         foregroundColor: color,
         child: Icon(
-          incoming ? Icons.south_west_rounded : Icons.north_east_rounded,
+          incoming ? Icons.south_east_rounded : Icons.north_east_rounded,
           size: 19,
         ),
       ),

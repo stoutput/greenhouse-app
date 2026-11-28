@@ -4,6 +4,8 @@ import 'package:greenhouse/finance_widgets.dart';
 import 'package:greenhouse/greenhouse_client.dart';
 import 'package:greenhouse/greenhouse_theme.dart';
 import 'package:greenhouse/overview.dart';
+import 'package:greenhouse/transactions.dart';
+import 'package:intl/intl.dart';
 
 void main() {
   testWidgets('shows tabs, totals, and categorized account drilldowns', (
@@ -54,6 +56,116 @@ void main() {
     expect(find.text('Account activity'), findsOneWidget);
     expect(find.text('Search transactions'), findsOneWidget);
     expect(client.transactionQueries.last['accountIds'], 'loan-1');
+  });
+
+  testWidgets('swipes between balances without resizing the chart or card', (
+    tester,
+  ) async {
+    final client = _MockClient();
+    addTearDown(client.dispose);
+    await tester.pumpWidget(_app(client));
+    await tester.pumpAndSettle();
+    final card = find.byKey(const ValueKey('growth-trajectory'));
+    final chart = find.byType(TrendChart);
+    final cardSize = tester.getSize(card);
+    final chartSize = tester.getSize(chart);
+    final assets = tester.getTopLeft(find.text('Assets')).dx;
+    final liabilities = tester.getTopLeft(find.text('Liabilities')).dx;
+    expect(liabilities - assets, greaterThan(cardSize.width / 2));
+    expect(find.text('NET WORTH'), findsOneWidget);
+    await tester.drag(chart, const Offset(-180, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('NET BALANCE'), findsOneWidget);
+    expect(find.text(r'$300.00'), findsWidgets);
+    expect(find.text('Loans'), findsOneWidget);
+    expect(tester.getSize(card), cardSize);
+    expect(tester.getSize(chart), chartSize);
+    final liabilitiesPoints = tester.widget<TrendChart>(chart).points;
+    expect(liabilitiesPoints.last.value, 30000);
+    await tester.drag(chart, const Offset(180, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('NET WORTH'), findsOneWidget);
+    await tester.drag(chart, const Offset(180, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('NET BALANCE'), findsOneWidget);
+    expect(find.text(r'$1,000.00'), findsWidgets);
+    expect(find.text('Checking'), findsOneWidget);
+    expect(tester.getSize(card), cardSize);
+    expect(tester.getSize(chart), chartSize);
+    final assetsPoints = tester.widget<TrendChart>(chart).points;
+    expect(assetsPoints.last.value, 195000);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cash flow identifies the month, directions and posted net', (
+    tester,
+  ) async {
+    final client = _MockClient();
+    addTearDown(client.dispose);
+    await tester.pumpWidget(_app(client));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Net cash flow'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text(DateFormat.yMMMM().format(DateTime.now())),
+      findsOneWidget,
+    );
+    expect(find.text('Income'), findsOneWidget);
+    expect(find.text('Expenses'), findsOneWidget);
+    expect(find.text('Posted spending'), findsNothing);
+    expect(find.text('Net cash flow'), findsOneWidget);
+    expect(find.text(r'$4,000.00'), findsOneWidget);
+    expect(find.byIcon(Icons.south_east_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.north_east_rounded), findsOneWidget);
+  });
+
+  testWidgets('cash flow does not invent a net when income is unknown', (
+    tester,
+  ) async {
+    final client = _MockClient(
+      summary: {
+        'income': null,
+        'postedSpending': _usd('100000'),
+        'pendingForecast': _usd('5000'),
+        'incomeUnavailableReason': 'No posted income',
+      },
+    );
+    addTearDown(client.dispose);
+    await tester.pumpWidget(_app(client));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Pending expenses'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Net cash flow'), findsNothing);
+    expect(find.text('Pending expenses'), findsOneWidget);
+    expect(find.text(r'$50.00'), findsOneWidget);
+    expect(find.text('No posted income'), findsOneWidget);
+  });
+
+  testWidgets('incoming transactions use the downward-right arrow', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TransactionTile(
+            row: {
+              'transaction': {'amount': _usd('123'), 'date': '2026-01-01'},
+            },
+            onTap: () {},
+          ),
+        ),
+      ),
+    );
+    expect(find.byIcon(Icons.south_east_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.south_west_rounded), findsNothing);
   });
 
   testWidgets('latest unknown balance never falls back to an older value', (
@@ -252,11 +364,15 @@ Json _balance(
 };
 
 class _MockClient extends GreenhouseClient {
-  _MockClient({Json? picture, List<Json>? accounts})
+  _MockClient({Json? picture, List<Json>? accounts, Json? summary})
     : picture = picture ?? _defaultPicture,
-      accounts = accounts ?? _defaultAccounts;
+      accounts = accounts ?? _defaultAccounts,
+      summary =
+          summary ??
+          {'income': _usd('500000'), 'postedSpending': _usd('100000')};
 
   final Json picture;
+  final Json summary;
   final List<Json> accounts;
   final requests = <String>[];
   final transactionQueries = <Map<String, String>>[];
@@ -279,9 +395,7 @@ class _MockClient extends GreenhouseClient {
       };
     }
     if (path.startsWith('/months/')) {
-      return {
-        'data': {'income': _usd('500000'), 'postedSpending': _usd('100000')},
-      };
+      return {'data': summary};
     }
     if (path == '/transactions') {
       transactionQueries.add({...?query});

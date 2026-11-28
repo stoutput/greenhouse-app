@@ -521,7 +521,8 @@ class _PluginPageBodyState extends State<PluginPageBody> {
   bool _sheetRefreshScheduled = false;
   bool _active = true;
   final Map<String, GlobalKey> _cardKeys = {};
-  ScrollPosition? _scrollPosition;
+  final Map<String, GlobalKey> _stackViewportKeys = {};
+  final Map<String, String> _cardResources = {};
   final Map<String, double> _cardFocus = {};
   bool _focusScheduled = false;
 
@@ -580,9 +581,9 @@ class _PluginPageBodyState extends State<PluginPageBody> {
     querying.clear();
     appending.clear();
     _cardKeys.clear();
+    _stackViewportKeys.clear();
+    _cardResources.clear();
     _cardFocus.clear();
-    _scrollPosition?.removeListener(_scheduleFocus);
-    _scrollPosition = null;
     _closeOverlays();
     document = null;
     resources.clear();
@@ -631,7 +632,6 @@ class _PluginPageBodyState extends State<PluginPageBody> {
   void dispose() {
     ++_interactionGeneration;
     _closeOverlays();
-    _scrollPosition?.removeListener(_scheduleFocus);
     for (final controller in controllers.values) {
       controller.dispose();
     }
@@ -1580,20 +1580,36 @@ class _PluginPageBodyState extends State<PluginPageBody> {
     if (!reducedMotion && _cardFocus.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleFocus());
     }
-    return NotificationListener<ScrollNotification>(
-      onNotification: (_) {
-        if (!reducedMotion) _scheduleFocus();
-        return false;
-      },
-      child: Builder(
-        builder: (scrollContext) {
-          final position = Scrollable.maybeOf(scrollContext)?.position;
-          if (!identical(position, _scrollPosition)) {
-            _scrollPosition?.removeListener(_scheduleFocus);
-            _scrollPosition = position;
-            if (!reducedMotion) position?.addListener(_scheduleFocus);
-          }
-          return SizedBox(
+    final minViewport = (cardHeight + slotHeight).clamp(0.0, 360.0);
+    final viewportHeight = (MediaQuery.sizeOf(this.context).height * .5).clamp(
+      minViewport,
+      360.0,
+    );
+    final target = viewportHeight * .35;
+    final topPadding = (target - slotHeight / 2).clamp(0.0, viewportHeight);
+    final bottomPadding = (viewportHeight - topPadding - cardHeight).clamp(
+      0.0,
+      viewportHeight,
+    );
+    final viewportKey = _stackViewportKeys.putIfAbsent(
+      resourceId,
+      GlobalKey.new,
+    );
+    for (final item in items) {
+      _cardResources[_cardIdentity(resourceId, item)] = resourceId;
+    }
+    return SizedBox(
+      key: viewportKey,
+      height: viewportHeight,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (_) {
+          if (!reducedMotion) _scheduleFocus();
+          return false;
+        },
+        child: SingleChildScrollView(
+          key: ValueKey('card-stack-scroll-$resourceId'),
+          padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
+          child: SizedBox(
             height: cardHeight + (items.length - 1) * slotHeight,
             child: Stack(
               clipBehavior: Clip.none,
@@ -1630,8 +1646,8 @@ class _PluginPageBodyState extends State<PluginPageBody> {
                   ),
               ],
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
@@ -1887,11 +1903,16 @@ class _PluginPageBodyState extends State<PluginPageBody> {
       _focusScheduled = false;
       if (!mounted) return;
       if (MediaQuery.disableAnimationsOf(context)) return;
-      final center = MediaQuery.sizeOf(context).height / 2;
       final next = <String, double>{};
       for (final entry in _cardKeys.entries) {
         final box = entry.value.currentContext?.findRenderObject();
         if (box is! RenderBox || !box.attached) continue;
+        final viewport = _stackViewportKeys[_cardResources[entry.key]]
+            ?.currentContext
+            ?.findRenderObject();
+        if (viewport is! RenderBox || !viewport.attached) continue;
+        final center =
+            viewport.localToGlobal(Offset.zero).dy + viewport.size.height * .35;
         final spacing = box.size.height * .35;
         final position = box.localToGlobal(Offset.zero);
         next[entry.key] = cardStackFocus(

@@ -1685,12 +1685,15 @@ void main() {
       await tester.pumpAndSettle();
       final fifth = find.byKey(const ValueKey('card-transform-wallet:card-5'));
       final sixth = find.byKey(const ValueKey('card-transform-wallet:card-6'));
+      final stack = find.byKey(const ValueKey('card-stack-scroll-wallet'));
       final position = tester
-          .state<ScrollableState>(find.byType(Scrollable).first)
+          .state<ScrollableState>(
+            find.descendant(of: stack, matching: find.byType(Scrollable)).first,
+          )
           .position;
       final spacing = tester.getSize(fifth).height * .35;
       final target =
-          tester.view.physicalSize.height / tester.view.devicePixelRatio / 2;
+          tester.getTopLeft(stack).dy + tester.getSize(stack).height * .35;
       final start =
           position.pixels + tester.getTopLeft(fifth).dy + spacing / 2 - target;
       Future<void> scrollTo(double offset) async {
@@ -1722,6 +1725,50 @@ void main() {
       expect(lift(sixth), closeTo(6, .2));
     },
   );
+
+  testWidgets('a short wallet scrolls when dragging the cards', (tester) async {
+    final transport = _CanonicalTransport(
+      spec: _fixture('cards-page-spec.json'),
+      resources: {
+        'wallet': const PluginResourceState(
+          data: {
+            'items': [
+              {'id': 'first', 'title': 'First card'},
+              {'id': 'second', 'title': 'Second card'},
+            ],
+            'total': 2,
+            'hasMore': false,
+          },
+          revision: 'w1',
+        ),
+      },
+    );
+    await tester.pumpWidget(_body(transport));
+    await tester.pumpAndSettle();
+    final stack = find.byKey(const ValueKey('card-stack-scroll-wallet'));
+    final scroll = tester
+        .state<ScrollableState>(
+          find.descendant(of: stack, matching: find.byType(Scrollable)).first,
+        )
+        .position;
+    final first = find.byKey(const ValueKey('card-transform-wallet:first'));
+    final second = find.byKey(const ValueKey('card-transform-wallet:second'));
+    expect(scroll.maxScrollExtent, greaterThan(0));
+    expect(
+      tester.widget<Transform>(first).transform.getTranslation().y,
+      closeTo(-12, .2),
+    );
+    await tester.drag(stack, const Offset(0, -80));
+    await tester.pumpAndSettle();
+    expect(scroll.pixels, greaterThan(0));
+    expect(
+      tester.widget<Transform>(second).transform.getTranslation().y,
+      closeTo(-12, .2),
+    );
+    await tester.tap(find.text('Second card'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+  });
 
   test('card focus rises and falls before the next card lifts', () {
     expect(cardStackFocus(0, 100), 1);

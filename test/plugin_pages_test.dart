@@ -1753,12 +1753,14 @@ void main() {
         .position;
     final first = find.byKey(const ValueKey('card-transform-wallet:first'));
     final second = find.byKey(const ValueKey('card-transform-wallet:second'));
+    final size = tester.getSize(first);
+    expect(size.width / size.height, closeTo(1.586, .01));
     expect(scroll.maxScrollExtent, greaterThan(0));
     expect(
       tester.widget<Transform>(first).transform.getTranslation().y,
       closeTo(-12, .2),
     );
-    await tester.drag(stack, const Offset(0, -80));
+    await tester.drag(stack, const Offset(0, -200));
     await tester.pumpAndSettle();
     expect(scroll.pixels, greaterThan(0));
     expect(

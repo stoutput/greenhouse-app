@@ -1571,84 +1571,90 @@ class _PluginPageBodyState extends State<PluginPageBody> {
     _RenderContext context,
     String resourceId,
   ) {
-    final textScale = MediaQuery.textScalerOf(this.context)
-        .scale(1)
-        .clamp(1.0, 2.0);
-    final cardHeight = 168 * textScale;
-    final slotHeight = cardHeight * .35;
     final reducedMotion = MediaQuery.disableAnimationsOf(this.context);
     if (!reducedMotion && _cardFocus.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleFocus());
     }
-    final minViewport = (cardHeight + slotHeight).clamp(0.0, 360.0);
-    final viewportHeight = (MediaQuery.sizeOf(this.context).height * .5).clamp(
-      minViewport,
-      360.0,
-    );
-    final target = viewportHeight * .35;
-    final topPadding = (target - slotHeight / 2).clamp(0.0, viewportHeight);
-    final bottomPadding = (viewportHeight - topPadding - cardHeight).clamp(
-      0.0,
-      viewportHeight,
-    );
-    final viewportKey = _stackViewportKeys.putIfAbsent(
-      resourceId,
-      GlobalKey.new,
-    );
-    for (final item in items) {
-      _cardResources[_cardIdentity(resourceId, item)] = resourceId;
-    }
-    return SizedBox(
-      key: viewportKey,
-      height: viewportHeight,
-      child: NotificationListener<ScrollNotification>(
-        onNotification: (_) {
-          if (!reducedMotion) _scheduleFocus();
-          return false;
-        },
-        child: SingleChildScrollView(
-          key: ValueKey('card-stack-scroll-$resourceId'),
-          padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth = constraints.maxWidth.clamp(0.0, 380.0);
+        final cardHeight = cardWidth / 1.586;
+        final slotHeight = cardHeight * .35;
+        final minViewport = (cardHeight + slotHeight).clamp(0.0, 360.0);
+        final viewportHeight = (MediaQuery.sizeOf(this.context).height * .5)
+            .clamp(minViewport, 360.0);
+        final target = viewportHeight * .35;
+        final topPadding = (target - slotHeight / 2).clamp(0.0, viewportHeight);
+        final bottomPadding = (viewportHeight - topPadding - cardHeight).clamp(
+          0.0,
+          viewportHeight,
+        );
+        final viewportKey = _stackViewportKeys.putIfAbsent(
+          resourceId,
+          GlobalKey.new,
+        );
+        for (final item in items) {
+          _cardResources[_cardIdentity(resourceId, item)] = resourceId;
+        }
+        return Center(
           child: SizedBox(
-            height: cardHeight + (items.length - 1) * slotHeight,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                for (var index = 0; index < items.length; index++)
-                  Positioned(
-                    top: index * slotHeight,
-                    left: 0,
-                    right: 0,
-                    height: cardHeight,
-                    child: SizedBox(
-                      key: _cardKeys.putIfAbsent(
-                        _cardIdentity(resourceId, items[index]),
-                        GlobalKey.new,
-                      ),
-                      child: _walletCard(
-                        byId,
-                        component,
-                        items[index],
-                        index,
-                        cardHeight,
-                        resourceId,
-                        selected: _isSelected(resourceId, items[index]),
-                        focus: reducedMotion
-                            ? 0
-                            : (_cardFocus[_cardIdentity(
-                                    resourceId,
-                                    items[index],
-                                  )] ??
-                                  0),
-                        reducedMotion: reducedMotion,
-                      ),
-                    ),
+            key: viewportKey,
+            width: cardWidth,
+            height: viewportHeight,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (_) {
+                if (!reducedMotion) _scheduleFocus();
+                return false;
+              },
+              child: SingleChildScrollView(
+                key: ValueKey('card-stack-scroll-$resourceId'),
+                padding: EdgeInsets.only(
+                  top: topPadding,
+                  bottom: bottomPadding,
+                ),
+                child: SizedBox(
+                  height: cardHeight + (items.length - 1) * slotHeight,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      for (var index = 0; index < items.length; index++)
+                        Positioned(
+                          top: index * slotHeight,
+                          left: 0,
+                          right: 0,
+                          height: cardHeight,
+                          child: SizedBox(
+                            key: _cardKeys.putIfAbsent(
+                              _cardIdentity(resourceId, items[index]),
+                              GlobalKey.new,
+                            ),
+                            child: _walletCard(
+                              byId,
+                              component,
+                              items[index],
+                              index,
+                              cardHeight,
+                              resourceId,
+                              selected: _isSelected(resourceId, items[index]),
+                              focus: reducedMotion
+                                  ? 0
+                                  : (_cardFocus[_cardIdentity(
+                                          resourceId,
+                                          items[index],
+                                        )] ??
+                                        0),
+                              reducedMotion: reducedMotion,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

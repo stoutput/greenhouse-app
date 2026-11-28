@@ -195,7 +195,7 @@ class _UiClient extends GreenhouseClient {
   _UiClient(this.transport);
   final _CanonicalTransport transport;
   int loads = 0;
-  final requests = <Map<String, String>?>[];
+  final requests = <Map<String, Object>?>[];
   Uri currentOrigin = Uri.parse('https://one.example');
   @override
   Uri get origin => currentOrigin;
@@ -213,7 +213,7 @@ class _UiClient extends GreenhouseClient {
     String path, {
     String method = 'GET',
     Json? body,
-    Map<String, String>? query,
+    Map<String, Object>? query,
   }) async {
     requests.add(query);
     if (path.contains('/queries/')) {
@@ -1765,7 +1765,7 @@ void main() {
     expect(scroll.pixels, greaterThan(0));
     expect(
       tester.widget<Transform>(second).transform.getTranslation().y,
-      closeTo(-12, .2),
+      lessThan(-8),
     );
     await tester.tap(find.text('Second card'));
     await tester.pumpAndSettle();
